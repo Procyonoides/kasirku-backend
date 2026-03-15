@@ -26,7 +26,7 @@ app.use(cors({
 // Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500,
+  max: 1000,
   message: { success: false, message: 'Terlalu banyak request, coba lagi nanti.' }
 });
 app.use('/api/', limiter);

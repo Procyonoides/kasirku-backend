@@ -36,14 +36,13 @@ const transactionSchema = new mongoose.Schema({
   cashier: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
 }, { timestamps: true });
 
-transactionSchema.pre('save', async function (next) {
+transactionSchema.pre('save', async function () {
   if (!this.invoiceNumber) {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
     const count = await mongoose.model('Transaction').countDocuments();
     this.invoiceNumber = `INV-${dateStr}-${String(count + 1).padStart(4, '0')}`;
   }
-  next();
 });
 
 module.exports = mongoose.model('Transaction', transactionSchema);

@@ -11,6 +11,7 @@ exports.getAll = async (req, res, next) => {
 
     if (status) query.status = status;
     if (paymentMethod) query.paymentMethod = paymentMethod;
+    if (req.query.customer) query.customer = req.query.customer;
     if (startDate || endDate) {
       query.createdAt = {};
       if (startDate) query.createdAt.$gte = new Date(startDate);
@@ -108,27 +109,29 @@ exports.create = async (req, res, next) => {
       }
     }
 
-    const transaction = await Transaction.create([{
-      items: transactionItems,
-      customer: customerId || null,
-      customerName,
-      subtotal,
-      discountTotal: discountAmount,
-      discountPercent: discountPercent || 0,
-      tax: taxAmount,
-      taxPercent: taxPercent || 0,
-      grandTotal,
-      paymentMethod,
-      amountPaid: amountPaid || grandTotal,
-      change,
-      isDebt,
-      status: isDebt ? 'hutang' : 'selesai',
-      notes,
-      cashier: req.user._id
-    }], { session });
+    const transaction = new Transaction({
+        items: transactionItems,
+        customer: customerId || null,
+        customerName,
+        subtotal,
+        discountTotal: discountAmount,
+        discountPercent: discountPercent || 0,
+        tax: taxAmount,
+        taxPercent: taxPercent || 0,
+        grandTotal,
+        paymentMethod,
+        amountPaid: amountPaid || grandTotal,
+        change,
+        isDebt,
+        status: isDebt ? 'hutang' : 'selesai',
+        notes,
+        cashier: req.user._id
+    });
+
+    await transaction.save({ session });
 
     await session.commitTransaction();
-    res.status(201).json({ success: true, message: 'Transaksi berhasil.', data: transaction[0] });
+    res.status(201).json({ success: true, message: 'Transaksi berhasil.', data: transaction });
   } catch (err) {
     await session.abortTransaction();
     next(err);

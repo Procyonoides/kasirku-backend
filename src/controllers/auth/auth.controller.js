@@ -81,3 +81,15 @@ exports.changePassword = async (req, res, next) => {
     res.json({ success: true, message: 'Password berhasil diubah.' });
   } catch (err) { next(err); }
 };
+
+exports.updateProfile = async (req, res, next) => {
+  try {
+    const { name, username } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { name, username },
+      { new: true, runValidators: true }
+    );
+    res.json({ success: true, message: 'Profil berhasil diperbarui.', data: user });
+  } catch (err) { next(err); }
+};
