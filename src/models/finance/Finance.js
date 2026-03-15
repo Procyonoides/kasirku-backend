@@ -7,7 +7,8 @@ const financeSchema = new mongoose.Schema({
     enum: [
       'pembelian_stok', 'gaji', 'sewa', 'listrik', 'air', 'internet',
       'perawatan', 'transportasi', 'marketing', 'lain_lain_keluar',
-      'modal', 'pinjaman', 'lain_lain_masuk'
+      'modal', 'pinjaman', 'lain_lain_masuk',
+      'penjualan', 'piutang_masuk', 'lain_lain'
     ],
     required: true
   },
