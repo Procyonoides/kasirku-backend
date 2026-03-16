@@ -29,12 +29,11 @@ productSchema.virtual('stockStatus').get(function () {
 productSchema.set('toJSON', { virtuals: true });
 productSchema.set('toObject', { virtuals: true });
 
-productSchema.pre('save', async function (next) {
+productSchema.pre('save', async function () {
   if (!this.sku) {
     const count = await mongoose.model('Product').countDocuments();
     this.sku = `PRD-${String(count + 1).padStart(5, '0')}`;
   }
-  next();
 });
 
 module.exports = mongoose.model('Product', productSchema);

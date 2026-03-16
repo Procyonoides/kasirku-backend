@@ -98,14 +98,49 @@ exports.cashflow = async (req, res, next) => {
     const start = startDate ? new Date(startDate) : new Date(new Date().setDate(1));
     const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59)) : new Date();
 
-    const [salesInflow, financeRecords] = await Promise.all([
-      Transaction.aggregate([
-        { $match: { createdAt: { $gte: start, $lte: end }, status: 'selesai', isDebt: false } },
-        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, amount: { $sum: '$grandTotal' } } }
-      ]),
-      Finance.find({ date: { $gte: start, $lte: end } }).sort('date')
-    ]);
+    const financeRecords = await Finance.find({ 
+      date: { $gte: start, $lte: end } 
+    }).sort('date');
 
-    res.json({ success: true, data: { salesInflow, financeRecords } });
+    // Hitung per hari
+    const dailyMap = {};
+    financeRecords.forEach(r => {
+      const day = r.date.toISOString().split('T')[0];
+      
+      // Inisialisasi dengan items[] sekalian
+      if (!dailyMap[day]) {
+        dailyMap[day] = { _id: day, income: 0, expense: 0, net: 0, items: [] };
+      }
+      
+      if (r.type === 'pemasukan') dailyMap[day].income += r.amount;
+      else dailyMap[day].expense += r.amount;
+      dailyMap[day].net = dailyMap[day].income - dailyMap[day].expense;
+      
+      // Push item detail
+      dailyMap[day].items.push({
+        type: r.type,
+        category: r.category,
+        description: r.description,
+        amount: r.amount
+      });
+    });
+
+    const daily = Object.values(dailyMap).sort((a, b) => a._id.localeCompare(b._id));
+    const totalIncome = financeRecords
+      .filter(r => r.type === 'pemasukan')
+      .reduce((s, r) => s + r.amount, 0);
+    const totalExpense = financeRecords
+      .filter(r => r.type === 'pengeluaran')
+      .reduce((s, r) => s + r.amount, 0);
+
+    res.json({ 
+      success: true, 
+      data: { 
+        totalIncome, 
+        totalExpense, 
+        netCashflow: totalIncome - totalExpense,
+        daily 
+      } 
+    });
   } catch (err) { next(err); }
 };
