@@ -38,8 +38,35 @@ exports.getStats = async (req, res, next) => {
 exports.salesChart = async (req, res, next) => {
   try {
     const { period = '7d' } = req.query;
+    let startDate;
+
+    if (period === 'today') {
+      // Midnight WIB (UTC+7) = UTC-17:00 hari sebelumnya
+      startDate = new Date();
+      startDate.setUTCHours(startDate.getUTCHours() >= 17 ? 17 : -7, 0, 0, 0);
+
+      const sales = await Transaction.aggregate([
+        { $match: { createdAt: { $gte: startDate }, status: 'selesai' } },
+        { $group: {
+          _id: {
+            $dateToString: {
+              format: '%H:%M:%S',
+              date: '$createdAt',
+              timezone: 'Asia/Jakarta'
+            }
+          },
+          revenue: { $sum: '$grandTotal' },
+          count: { $sum: 1 }
+        }},
+        { $sort: { '_id': 1 } }
+      ]);
+
+      return res.json({ success: true, data: sales, period });
+    }
+
+    // 7 hari atau 30 hari
     const days = period === '30d' ? 30 : 7;
-    const startDate = new Date();
+    startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
 
@@ -53,7 +80,7 @@ exports.salesChart = async (req, res, next) => {
       { $sort: { '_id': 1 } }
     ]);
 
-    res.json({ success: true, data: sales });
+    res.json({ success: true, data: sales, period });
   } catch (err) { next(err); }
 };
 
