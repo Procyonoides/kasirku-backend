@@ -16,10 +16,16 @@ const PORT = process.env.PORT || 3000;
 // Connect Database
 connectDB();
 
+// Static Files
+const path = require('path');
+const uploadPath = path.resolve(__dirname, '..', 'uploads');
+console.log('Upload path:', uploadPath);
+app.use('/uploads', express.static(uploadPath));
+
 // Security Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.APP_URL || 'http://localhost:4200',
+  origin: process.env.FRONTEND_URL || 'http://localhost:4200',
   credentials: true,
 }));
 
@@ -36,8 +42,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('combined', { stream: { write: msg => logger.info(msg.trim()) } }));
 
-// Static Files
-app.use('/uploads', express.static('uploads'));
+
 
 // Routes
 app.use('/api', routes);
