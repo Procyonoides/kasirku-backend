@@ -3,6 +3,7 @@ const Product = require('../../models/product/Product');
 const Customer = require('../../models/customer/Customer');
 const DebtPayment = require('../../models/customer/DebtPayment');
 const mongoose = require('mongoose');
+const PointHistory = require('../../models/customer/PointHistory');
 
 exports.getAll = async (req, res, next) => {
   try {
@@ -60,7 +61,7 @@ exports.create = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes } = req.body;
+    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes, pointsUsed } = req.body;
 
     let subtotal = 0;
     const transactionItems = [];
@@ -90,7 +91,17 @@ exports.create = async (req, res, next) => {
     const discountAmount = subtotal * ((discountPercent || 0) / 100);
     const afterDiscount = subtotal - discountAmount;
     const taxAmount = afterDiscount * ((taxPercent || 0) / 100);
-    const grandTotal = afterDiscount + taxAmount;
+
+    // Hitung diskon dari poin
+    const pointsToUse = pointsUsed || 0;
+    if (customerId && pointsToUse > 0) {
+      const customer = await Customer.findById(customerId).session(session);
+      if (customer && pointsToUse > customer.points) {
+        throw new Error('Poin tidak mencukupi.');
+      }
+    }
+    const pointsDiscount = pointsToUse * 100; // 1 poin = Rp 100
+    const grandTotal = Math.max(0, afterDiscount + taxAmount - pointsDiscount);
 
     const isDebt = paymentMethod === 'hutang';
     const change = isDebt ? 0 : Math.max(0, (amountPaid || 0) - grandTotal);
@@ -104,7 +115,39 @@ exports.create = async (req, res, next) => {
         customer.totalTransactions += 1;
         customer.totalSpent += grandTotal;
         customer.lastTransactionAt = new Date();
-        customer.points += Math.floor(grandTotal / 10000);
+
+        const pointsEarned = Math.floor(grandTotal / 10000);
+        const balanceBefore = customer.points;
+
+        // Kurangi poin yang dipakai
+        if (pointsToUse > 0) {
+          await PointHistory.create([{
+            customer: customer._id,
+            transaction: null,
+            type: 'used',
+            points: pointsToUse,
+            description: 'Penukaran poin',
+            balanceBefore: balanceBefore,
+            balanceAfter: balanceBefore - pointsToUse
+          }], { session });
+          customer.points -= pointsToUse;
+        }
+
+        // Tambah poin dari transaksi
+        if (pointsEarned > 0) {
+          await PointHistory.create([{
+            customer: customer._id,
+            transaction: null,
+            type: 'earned',
+            points: pointsEarned,
+            description: 'Poin dari transaksi',
+            balanceBefore: customer.points,
+            balanceAfter: customer.points + pointsEarned
+          }], { session });
+          customer.points += pointsEarned;
+        }
+
+        if (customer.points < 0) customer.points = 0;
         await customer.save({ session });
       }
     }
@@ -125,6 +168,9 @@ exports.create = async (req, res, next) => {
         isDebt,
         status: isDebt ? 'hutang' : 'selesai',
         notes,
+        pointsUsed: pointsToUse,
+        pointsEarned: Math.floor(grandTotal / 10000),
+        pointsDiscount,
         cashier: req.user._id
     });
 

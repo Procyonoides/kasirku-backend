@@ -8,5 +8,6 @@ router.use(authenticate);
 router.get('/stats', dashboardController.getStats);
 router.get('/chart/sales', dashboardController.salesChart);
 router.get('/recent', dashboardController.getRecent);
+router.get('/daily-recap', dashboardController.getDailyRecap);
 
 module.exports = router;

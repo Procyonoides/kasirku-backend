@@ -9,6 +9,7 @@ router.get('/', customerController.getAll);
 router.get('/debtors', customerController.getDebtors);
 router.get('/:id', customerController.getOne);
 router.get('/:id/transactions', customerController.getTransactions);
+router.get('/:id/points', customerController.getPointHistory);
 router.post('/', customerController.create);
 router.put('/:id', customerController.update);
 router.delete('/:id', authorize('owner'), customerController.delete);

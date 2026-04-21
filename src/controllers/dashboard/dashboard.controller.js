@@ -94,3 +94,81 @@ exports.getRecent = async (req, res, next) => {
     res.json({ success: true, data: transactions });
   } catch (err) { next(err); }
 };
+
+exports.getDailyRecap = async (req, res, next) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    // Ambil semua transaksi hari ini
+    const transactions = await Transaction.find({
+      createdAt: { $gte: today, $lt: tomorrow },
+      status: 'selesai'
+    }).populate('customer', 'name');
+
+    // Breakdown pembayaran
+    const paymentBreakdown = {};
+    transactions.forEach(tx => {
+      if (!paymentBreakdown[tx.paymentMethod]) {
+        paymentBreakdown[tx.paymentMethod] = { count: 0, total: 0 };
+      }
+      paymentBreakdown[tx.paymentMethod].count += 1;
+      paymentBreakdown[tx.paymentMethod].total += tx.grandTotal;
+    });
+
+    // Produk terlaris hari ini
+    const productMap = {};
+    transactions.forEach(tx => {
+      tx.items.forEach(item => {
+        if (!productMap[item.productName]) {
+          productMap[item.productName] = { qty: 0, revenue: 0 };
+        }
+        productMap[item.productName].qty += item.qty;
+        productMap[item.productName].revenue += item.subtotal;
+      });
+    });
+    const topProducts = Object.entries(productMap)
+      .map(([name, data]) => ({ name, ...data }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5);
+
+    // Top pelanggan hari ini
+    const customerMap = {};
+    transactions.forEach(tx => {
+      if (tx.customer) {
+        const key = tx.customer._id.toString();
+        if (!customerMap[key]) {
+          customerMap[key] = { name: tx.customerName, total: 0, count: 0 };
+        }
+        customerMap[key].total += tx.grandTotal;
+        customerMap[key].count += 1;
+      }
+    });
+    const topCustomers = Object.values(customerMap)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    // Summary
+    const totalRevenue = transactions.reduce((s, t) => s + t.grandTotal, 0);
+    const totalProfit = transactions.reduce((s, t) => {
+      return s + t.items.reduce((ps, i) => ps + ((i.sellPrice - i.buyPrice) * i.qty), 0);
+    }, 0);
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalRevenue,
+          totalProfit,
+          avgTransaction: transactions.length > 0 ? Math.round(totalRevenue / transactions.length) : 0
+        },
+        paymentBreakdown,
+        topProducts,
+        topCustomers
+      }
+    });
+  } catch (err) { next(err); }
+};

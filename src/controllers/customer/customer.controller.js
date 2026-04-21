@@ -1,5 +1,6 @@
 const Customer = require('../../models/customer/Customer');
 const Transaction = require('../../models/transaction/Transaction');
+const PointHistory = require('../../models/customer/PointHistory');
 
 exports.getAll = async (req, res, next) => {
   try {
@@ -57,5 +58,21 @@ exports.delete = async (req, res, next) => {
   try {
     await Customer.findByIdAndUpdate(req.params.id, { isActive: false });
     res.json({ success: true, message: 'Pelanggan dihapus.' });
+  } catch (err) { next(err); }
+};
+
+exports.getPointHistory = async (req, res, next) => {
+  try {
+    const history = await PointHistory.find({ customer: req.params.id })
+      .sort({ createdAt: -1 })
+      .limit(20);
+    
+    const customer = await Customer.findById(req.params.id);
+    
+    res.json({ 
+      success: true, 
+      data: history,
+      currentPoints: customer?.points || 0
+    });
   } catch (err) { next(err); }
 };
