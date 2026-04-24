@@ -10,13 +10,23 @@ const seed = async () => {
 
   await Promise.all([User.deleteMany(), Category.deleteMany(), Product.deleteMany()]);
 
+  // Use environment variables for owner credentials
+  // If not set, use defaults (for development only)
+  const ownerUsername = process.env.OWNER_USERNAME || 'admin';
+  const ownerPassword = process.env.OWNER_PASSWORD || 'kasirku123';
+  
+  if (!process.env.OWNER_USERNAME || !process.env.OWNER_PASSWORD) {
+    console.warn('⚠️  WARNING: Using default credentials. Set OWNER_USERNAME and OWNER_PASSWORD in .env for production.');
+  }
+
   const owner = await User.create({
     name: 'Admin KasirKu',
-    username: 'admin',
-    password: 'kasirku123',
+    username: ownerUsername,
+    password: ownerPassword,
     role: 'owner'
   });
-  console.log('✅ Owner created:', owner.username, '| password: kasirku123');
+  console.log('✅ Owner created:', owner.username);
+  console.log('⚠️  IMPORTANT: Store your password securely. It will not be shown again.');
 
   const categories = await Category.insertMany([
     { name: 'Minuman', color: '#3B82F6', icon: 'local_drink' },
@@ -36,7 +46,6 @@ const seed = async () => {
 
   console.log('✅ Categories and products created');
   console.log('\n🎉 Seeding complete!');
-  console.log('Login: admin@kasirku.com | Password: kasirku123');
   process.exit(0);
 };
 

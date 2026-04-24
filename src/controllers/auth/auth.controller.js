@@ -28,8 +28,14 @@ exports.login = async (req, res, next) => {
 
 exports.register = async (req, res, next) => {
   try {
-    const existingOwner = await User.findOne({ role: 'owner' });
     const { name, username, password, role } = req.body;
+    if (!name || !username || !password) {
+      return res.status(400).json({ success: false, message: 'Nama, username, dan password wajib diisi.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password minimal 6 karakter.' });
+    }
+    const existingOwner = await User.findOne({ role: 'owner' });
     const assignedRole = existingOwner ? (role || 'kasir') : 'owner';
 
     const user = await User.create({ name, username, password, role: assignedRole });
@@ -70,6 +76,12 @@ exports.getMe = async (req, res) => {
 exports.changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Password lama dan baru wajib diisi.' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password baru minimal 6 karakter.' });
+    }
     const user = await User.findById(req.user._id).select('+password');
 
     if (!(await user.comparePassword(currentPassword))) {

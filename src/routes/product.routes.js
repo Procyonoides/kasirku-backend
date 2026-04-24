@@ -3,18 +3,19 @@ const router = express.Router();
 const { authenticate, authorize } = require('../middleware/auth');
 const productController = require('../controllers/product/product.controller');
 const upload = require('../config/multer');
+const { validateProductCreate, validateProductUpdate, validateProductSearch, validateId, validate } = require('../middleware/validators');
 
 router.use(authenticate);
 
 router.get('/', productController.getAll);
 router.get('/low-stock', productController.getLowStock);
-router.get('/search', productController.search);
-router.get('/:id', productController.getOne);
-router.post('/', authorize('owner', 'admin'), productController.create);
-router.put('/:id', authorize('owner', 'admin'), productController.update);
-router.patch('/:id/stock', authorize('owner', 'admin', 'kasir'), productController.updateStock);
-router.delete('/:id', authorize('owner'), productController.delete);
-router.post('/:id/upload-image', authorize('owner', 'admin'), upload.single('image'), async (req, res, next) => {
+router.get('/search', validateProductSearch, validate, productController.search);
+router.get('/:id', validateId, validate, productController.getOne);
+router.post('/', authorize('owner', 'admin'), validateProductCreate, validate, productController.create);
+router.put('/:id', authorize('owner', 'admin'), validateProductUpdate, validate, productController.update);
+router.patch('/:id/stock', authorize('owner', 'admin', 'kasir'), validateId, validate, productController.updateStock);
+router.delete('/:id', authorize('owner'), validateId, validate, productController.delete);
+router.post('/:id/upload-image', authorize('owner', 'admin'), validateId, validate, upload.single('image'), async (req, res, next) => {
   try {
     const product = await require('../models/product/Product').findById(req.params.id);
     if (!product) return res.status(404).json({ success: false, message: 'Produk tidak ditemukan.' });
@@ -33,7 +34,7 @@ router.post('/:id/upload-image', authorize('owner', 'admin'), upload.single('ima
   } catch (err) { next(err); }
 });
 
-router.delete('/:id/delete-image', authorize('owner', 'admin'), async (req, res, next) => {
+router.delete('/:id/delete-image', authorize('owner', 'admin'), validateId, validate, async (req, res, next) => {
   try {
     const product = await require('../models/product/Product').findById(req.params.id);
     if (!product) return res.status(404).json({ success: false, message: 'Produk tidak ditemukan.' });

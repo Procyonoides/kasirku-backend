@@ -2,14 +2,22 @@ const Customer = require('../../models/customer/Customer');
 const Transaction = require('../../models/transaction/Transaction');
 const PointHistory = require('../../models/customer/PointHistory');
 
+// Helper function to escape regex special characters (prevent DOS attacks)
+const escapeRegex = (str) => {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 exports.getAll = async (req, res, next) => {
   try {
     const { search, page = 1, limit = 20 } = req.query;
     const query = { isActive: true };
-    if (search) query.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { phone: { $regex: search, $options: 'i' } }
-    ];
+    if (search) {
+      const escapedSearch = escapeRegex(search);
+      query.$or = [
+        { name: { $regex: escapedSearch, $options: 'i' } },
+        { phone: { $regex: escapedSearch, $options: 'i' } }
+      ];
+    }
 
     const total = await Customer.countDocuments(query);
     const customers = await Customer.find(query).sort('name').skip((page - 1) * limit).limit(Number(limit));

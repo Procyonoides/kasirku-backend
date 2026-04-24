@@ -1,5 +1,10 @@
 const Product = require('../../models/product/Product');
 
+// Helper function to escape regex special characters
+const escapeRegex = (str) => {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 exports.getAll = async (req, res, next) => {
   try {
     const { page = 1, limit = 20, category, search, status } = req.query;
@@ -8,11 +13,14 @@ exports.getAll = async (req, res, next) => {
     if (category) query.category = category;
     if (status === 'habis') query.stock = 0;
     if (status === 'menipis') query.$expr = { $lte: ['$stock', '$minStock'] };
-    if (search) query.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { sku: { $regex: search, $options: 'i' } },
-      { barcode: { $regex: search, $options: 'i' } }
-    ];
+    if (search) {
+      const escapedSearch = escapeRegex(search);
+      query.$or = [
+        { name: { $regex: escapedSearch, $options: 'i' } },
+        { sku: { $regex: escapedSearch, $options: 'i' } },
+        { barcode: { $regex: escapedSearch, $options: 'i' } }
+      ];
+    }
 
     const total = await Product.countDocuments(query);
     const products = await Product.find(query)
@@ -38,13 +46,17 @@ exports.getLowStock = async (req, res, next) => {
 exports.search = async (req, res, next) => {
   try {
     const { q } = req.query;
+    if (!q || !q.trim()) {
+      return res.json({ success: true, data: [] });
+    }
+    const escapedQ = escapeRegex(q.trim());
     const products = await Product.find({
       isActive: true,
       stock: { $gt: 0 },
       $or: [
-        { name: { $regex: q, $options: 'i' } },
-        { sku: { $regex: q, $options: 'i' } },
-        { barcode: q }
+        { name: { $regex: escapedQ, $options: 'i' } },
+        { sku: { $regex: escapedQ, $options: 'i' } },
+        { barcode: q.trim() }
       ]
     }).limit(10).select('name sku barcode sellPrice stock unit image');
     res.json({ success: true, data: products });

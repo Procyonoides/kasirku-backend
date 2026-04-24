@@ -25,17 +25,43 @@ app.use('/uploads', express.static(uploadPath));
 // Security Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+  origin: (origin, callback) => {
+    // Izinkan request tanpa origin (Postman, curl, dll)
+    if (!origin) return callback(null, true);
+    // Development: izinkan semua localhost
+    if (process.env.NODE_ENV === 'development' && /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+    // Production: hanya FRONTEND_URL
+    if (origin === process.env.FRONTEND_URL) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 
-// Rate Limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1000,
-  message: { success: false, message: 'Terlalu banyak request, coba lagi nanti.' }
-});
-app.use('/api/', limiter);
+// Rate Limiting — hanya aktif di production
+if (process.env.NODE_ENV === 'production') {
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: 'Terlalu banyak request, coba lagi nanti.' }
+  });
+  app.use('/api/', limiter);
+
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 15,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: 'Terlalu banyak percobaan login, coba lagi dalam 15 menit.' }
+  });
+  app.use('/api/auth/login', authLimiter);
+  app.use('/api/auth/register', authLimiter);
+}
 
 // General Middleware
 app.use(express.json({ limit: '10mb' }));

@@ -14,6 +14,12 @@ exports.salesReport = async (req, res, next) => {
         _id: { $dateToString: { format, date: '$createdAt' } },
         revenue: { $sum: '$grandTotal' },
         transactions: { $sum: 1 },
+        items: { $sum: {
+          $reduce: {
+            input: '$items', initialValue: 0,
+            in: { $add: ['$$value', '$$this.qty'] }
+          }
+        }},
         profit: { $sum: {
           $reduce: {
             input: '$items', initialValue: 0,

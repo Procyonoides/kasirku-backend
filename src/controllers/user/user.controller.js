@@ -44,15 +44,35 @@ exports.update = async (req, res, next) => {
 
 exports.resetPassword = async (req, res, next) => {
   try {
-    const { newPassword } = req.body;
+    const { newPassword, confirmPassword } = req.body;
+    
+    // Validation
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ success: false, message: 'Password minimal 6 karakter.' });
     }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Password tidak cocok.' });
+    }
+    
+    // Security: Verify requester is owner/admin (not cashier)
+    if (!['owner', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Hanya owner/admin yang bisa reset password.' });
+    }
+
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, message: 'User tidak ditemukan.' });
 
+    // Prevent owner from being password reset by another admin
+    if (user.role === 'owner' && req.user.role !== 'owner') {
+      return res.status(403).json({ success: false, message: 'Hanya owner yang bisa reset password owner.' });
+    }
+
     user.password = newPassword;
     await user.save();
+    
+    // Log audit trail
+    console.log(`[AUDIT] Password reset: User ${user.username} by ${req.user.username} at ${new Date().toISOString()}`);
+    
     res.json({ success: true, message: 'Password berhasil direset.' });
   } catch (err) { next(err); }
 };
