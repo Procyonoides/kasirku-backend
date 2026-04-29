@@ -51,7 +51,16 @@ exports.getToday = async (req, res, next) => {
 exports.getOne = async (req, res, next) => {
   try {
     const transaction = await Transaction.findById(req.params.id)
-      .populate('customer').populate('cashier', 'name').populate('items.product', 'name sku');
+      .populate('customer')
+      .populate('cashier', 'name')
+      .populate({
+        path: 'items.product',
+        select: 'name sku category',
+        populate: {
+          path: 'category',
+          select: 'name'
+        }
+      });
     if (!transaction) return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
     res.json({ success: true, data: transaction });
   } catch (err) { next(err); }

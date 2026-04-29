@@ -98,6 +98,51 @@ exports.topProducts = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.topCategories = async (req, res, next) => {
+  try {
+    const { limit = 10, startDate, endDate } = req.query;
+    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(1));
+    const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59)) : new Date();
+
+    const data = await Transaction.aggregate([
+      { $match: { createdAt: { $gte: start, $lte: end }, status: 'selesai' } },
+      { $unwind: '$items' },
+      { $lookup: {
+        from: 'products',
+        localField: 'items.product',
+        foreignField: '_id',
+        as: 'productData'
+      }},
+      { $unwind: { path: '$productData', preserveNullAndEmptyArrays: true } },
+      { $group: {
+        _id: '$productData.category',
+        categoryName: { $first: '$productData.category' },
+        totalQty: { $sum: '$items.qty' },
+        totalRevenue: { $sum: '$items.subtotal' },
+        totalProfit: { $sum: { $multiply: [{ $subtract: ['$items.sellPrice', '$items.buyPrice'] }, '$items.qty'] } }
+      }},
+      { $lookup: {
+        from: 'categories',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'category'
+      }},
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      { $project: {
+        _id: 1,
+        categoryName: { $ifNull: ['$category.name', 'Uncategorized'] },
+        totalQty: 1,
+        totalRevenue: 1,
+        totalProfit: 1
+      }},
+      { $sort: { totalQty: -1 } },
+      { $limit: Number(limit) }
+    ]);
+
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
 exports.cashflow = async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;

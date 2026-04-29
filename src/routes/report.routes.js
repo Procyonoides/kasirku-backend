@@ -9,6 +9,7 @@ router.use(authenticate);
 router.get('/sales', validateReportFilters, validate, reportController.salesReport);
 router.get('/profit-loss', validateReportFilters, validate, reportController.profitLoss);
 router.get('/top-products', validateReportFilters, validate, reportController.topProducts);
+router.get('/top-categories', validateReportFilters, validate, reportController.topCategories);
 router.get('/cashflow', validateReportFilters, validate, reportController.cashflow);
 
 module.exports = router;
