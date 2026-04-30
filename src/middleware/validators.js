@@ -77,7 +77,7 @@ exports.validateProductCreate = [
     .optional()
     .trim()
     .isLength({ max: 50 }).withMessage('Barcode maksimal 50 karakter'),
-  body('categoryId')
+  body('category')
     .notEmpty().withMessage('Kategori wajib dipilih')
     .isMongoId().withMessage('Kategori ID invalid'),
   body('buyPrice')
@@ -212,9 +212,8 @@ exports.validateCustomerCreate = [
     .trim()
     .isEmail().withMessage('Format email tidak valid'),
   body('phone')
-    .optional()
-    .trim()
-    .isMobilePhone(['id-ID']).withMessage('Format nomor telepon tidak valid'),
+    .optional({ nullable: true, checkFalsy: true })
+    .trim(),
   body('address')
     .optional()
     .trim()
@@ -239,9 +238,8 @@ exports.validateCustomerUpdate = [
     .trim()
     .isEmail().withMessage('Format email tidak valid'),
   body('phone')
-    .optional()
-    .trim()
-    .isMobilePhone(['id-ID']).withMessage('Format nomor telepon tidak valid'),
+    .optional({ nullable: true, checkFalsy: true })
+    .trim(),
   body('address')
     .optional()
     .trim()

@@ -11,6 +11,7 @@ const reportRoutes = require('./report.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const userRoutes = require('./user.routes');
 const settingRoutes = require('./setting.routes');
+const backupRoutes = require('./backup.routes');
 
 router.use('/auth', authRoutes);
 router.use('/products', productRoutes);
@@ -22,5 +23,6 @@ router.use('/reports', reportRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/users', userRoutes);
 router.use('/settings', settingRoutes);
+router.use('/backup', backupRoutes);
 
 module.exports = router;

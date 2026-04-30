@@ -8,7 +8,7 @@ const financeSchema = new mongoose.Schema({
       'pembelian_stok', 'gaji', 'sewa', 'listrik', 'air', 'internet',
       'perawatan', 'transportasi', 'marketing', 'lain_lain_keluar',
       'modal', 'pinjaman', 'lain_lain_masuk',
-      'penjualan', 'piutang_masuk', 'lain_lain'
+      'penjualan', 'piutang_masuk'
     ],
     required: true
   },
