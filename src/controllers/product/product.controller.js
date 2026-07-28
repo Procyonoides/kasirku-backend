@@ -25,6 +25,7 @@ exports.getAll = async (req, res, next) => {
     const total = await Product.countDocuments(query);
     const products = await Product.find(query)
       .populate('category', 'name color')
+      .populate('unit', 'name')
       .sort({ name: 1 })
       .skip((page - 1) * limit)
       .limit(Number(limit));
@@ -38,7 +39,7 @@ exports.getLowStock = async (req, res, next) => {
     const products = await Product.find({
       isActive: true,
       $expr: { $lte: ['$stock', '$minStock'] }
-    }).populate('category', 'name').sort({ stock: 1 });
+    }).populate('category', 'name').populate('unit', 'name').sort({ stock: 1 });
     res.json({ success: true, data: products });
   } catch (err) { next(err); }
 };
@@ -58,14 +59,14 @@ exports.search = async (req, res, next) => {
         { sku: { $regex: escapedQ, $options: 'i' } },
         { barcode: q.trim() }
       ]
-    }).limit(10).select('name sku barcode sellPrice stock unit image');
+    }).limit(10).select('name sku barcode sellPrice stock unit image').populate('unit', 'name');
     res.json({ success: true, data: products });
   } catch (err) { next(err); }
 };
 
 exports.getOne = async (req, res, next) => {
   try {
-    const product = await Product.findById(req.params.id).populate('category');
+    const product = await Product.findById(req.params.id).populate('category').populate('unit', 'name');
     if (!product) return res.status(404).json({ success: false, message: 'Produk tidak ditemukan.' });
     res.json({ success: true, data: product });
   } catch (err) { next(err); }

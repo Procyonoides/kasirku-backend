@@ -11,7 +11,7 @@ const productSchema = new mongoose.Schema({
   sellPrice: { type: Number, required: true, min: 0 },
   stock: { type: Number, default: 0, min: 0 },
   minStock: { type: Number, default: 5 },
-  unit: { type: String, default: 'pcs' },
+  unit: { type: mongoose.Schema.Types.ObjectId, ref: 'Unit', default: null },
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 

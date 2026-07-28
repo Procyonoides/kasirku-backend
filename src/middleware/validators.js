@@ -80,6 +80,9 @@ exports.validateProductCreate = [
   body('category')
     .notEmpty().withMessage('Kategori wajib dipilih')
     .isMongoId().withMessage('Kategori ID invalid'),
+  body('unit')
+    .notEmpty().withMessage('Satuan wajib dipilih')
+    .isMongoId().withMessage('Satuan ID invalid'),
   body('buyPrice')
     .notEmpty().withMessage('Harga beli wajib diisi')
     .isFloat({ min: 0 }).withMessage('Harga beli harus angka positif'),
@@ -113,9 +116,12 @@ exports.validateProductUpdate = [
     .optional()
     .trim()
     .isLength({ max: 50 }).withMessage('Barcode maksimal 50 karakter'),
-  body('categoryId')
+  body('category')
     .optional()
     .isMongoId().withMessage('Kategori ID invalid'),
+  body('unit')
+    .optional()
+    .isMongoId().withMessage('Satuan ID invalid'),
   body('buyPrice')
     .optional()
     .isFloat({ min: 0 }).withMessage('Harga beli harus angka positif'),
@@ -351,6 +357,34 @@ exports.validateCategoryUpdate = [
     .optional()
     .trim()
     .isLength({ min: 2, max: 50 }).withMessage('Nama kategori 2-50 karakter'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ max: 200 }).withMessage('Deskripsi maksimal 200 karakter')
+];
+
+// ============================================
+// UNIT VALIDATORS
+// ============================================
+
+exports.validateUnitCreate = [
+  body('name')
+    .trim()
+    .notEmpty().withMessage('Nama satuan wajib diisi')
+    .isLength({ min: 1, max: 20 }).withMessage('Nama satuan 1-20 karakter'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ max: 200 }).withMessage('Deskripsi maksimal 200 karakter')
+];
+
+exports.validateUnitUpdate = [
+  param('id')
+    .isMongoId().withMessage('Unit ID invalid'),
+  body('name')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 20 }).withMessage('Nama satuan 1-20 karakter'),
   body('description')
     .optional()
     .trim()

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/utils/seeder.js"
+    "seed": "node src/utils/seeder.js",
+    "migrate:units": "node src/utils/migrateUnits.js"
   },
   "keywords": [],
   "author": "",

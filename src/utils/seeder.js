@@ -2,13 +2,14 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'
 const mongoose = require('mongoose');
 const User = require('../models/user/User');
 const Category = require('../models/category/Category');
+const Unit = require('../models/unit/Unit');
 const Product = require('../models/product/Product');
 
 const seed = async () => {
   await mongoose.connect(process.env.MONGODB_URI);
   console.log('Connected to MongoDB...');
 
-  await Promise.all([User.deleteMany(), Category.deleteMany(), Product.deleteMany()]);
+  await Promise.all([User.deleteMany(), Category.deleteMany(), Unit.deleteMany(), Product.deleteMany()]);
 
   // Use environment variables for owner credentials
   // If not set, use defaults (for development only)
@@ -36,15 +37,28 @@ const seed = async () => {
     { name: 'Sembako', color: '#10B981', icon: 'shopping_basket' }
   ]);
 
+  const units = await Unit.insertMany([
+    { name: 'pcs' },
+    { name: 'botol' },
+    { name: 'bungkus' },
+    { name: 'kg' },
+    { name: 'gram' },
+    { name: 'liter' },
+    { name: 'lusin' },
+    { name: 'dus' },
+    { name: 'karton' }
+  ]);
+  const unitId = (name) => units.find(u => u.name === name)._id;
+
   await Product.insertMany([
-    { name: 'Aqua 600ml', sku: 'PRD-00001', category: categories[0]._id, buyPrice: 2500, sellPrice: 3500, stock: 100, unit: 'botol' },
-    { name: 'Indomie Goreng', sku: 'PRD-00002', category: categories[4]._id, buyPrice: 2800, sellPrice: 3500, stock: 50, unit: 'bungkus' },
-    { name: 'Teh Botol 350ml', sku: 'PRD-00003', category: categories[0]._id, buyPrice: 3000, sellPrice: 4000, stock: 80, unit: 'botol' },
-    { name: 'Chitato 68gr', sku: 'PRD-00004', category: categories[2]._id, buyPrice: 8500, sellPrice: 10000, stock: 30, unit: 'bungkus' },
-    { name: 'Beng-Beng', sku: 'PRD-00005', category: categories[1]._id, buyPrice: 2000, sellPrice: 3000, stock: 60, unit: 'pcs' },
+    { name: 'Aqua 600ml', sku: 'PRD-00001', category: categories[0]._id, buyPrice: 2500, sellPrice: 3500, stock: 100, unit: unitId('botol') },
+    { name: 'Indomie Goreng', sku: 'PRD-00002', category: categories[4]._id, buyPrice: 2800, sellPrice: 3500, stock: 50, unit: unitId('bungkus') },
+    { name: 'Teh Botol 350ml', sku: 'PRD-00003', category: categories[0]._id, buyPrice: 3000, sellPrice: 4000, stock: 80, unit: unitId('botol') },
+    { name: 'Chitato 68gr', sku: 'PRD-00004', category: categories[2]._id, buyPrice: 8500, sellPrice: 10000, stock: 30, unit: unitId('bungkus') },
+    { name: 'Beng-Beng', sku: 'PRD-00005', category: categories[1]._id, buyPrice: 2000, sellPrice: 3000, stock: 60, unit: unitId('pcs') },
   ]);
 
-  console.log('✅ Categories and products created');
+  console.log('✅ Categories, units, and products created');
   console.log('\n🎉 Seeding complete!');
   process.exit(0);
 };
