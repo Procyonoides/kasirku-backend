@@ -11,6 +11,7 @@ router.get('/today', transactionController.getToday);
 router.get('/:id', validateId, validate, transactionController.getOne);
 router.post('/', validateTransactionCreate, validate, transactionController.create);
 router.patch('/:id/cancel', authorize('owner', 'admin'), validateId, validate, transactionController.cancel);
+router.delete('/:id', authorize('owner'), validateId, validate, transactionController.remove);
 router.post('/debt/:id/pay', validateId, validate, transactionController.payDebt);
 
 module.exports = router;

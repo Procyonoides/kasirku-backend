@@ -211,6 +211,28 @@ exports.cancel = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// Hapus permanen — SENGAJA dibatasi ketat:
+// - hanya owner
+// - hanya transaksi yang statusnya sudah 'dibatalkan'
+// Transaksi 'selesai'/'hutang' tidak pernah boleh dihapus permanen,
+// supaya laporan keuangan & riwayat pelanggan tetap konsisten.
+exports.remove = async (req, res, next) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction) return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
+
+    if (transaction.status !== 'dibatalkan') {
+      return res.status(400).json({
+        success: false,
+        message: 'Hanya transaksi berstatus "dibatalkan" yang bisa dihapus permanen. Batalkan transaksi ini dulu.'
+      });
+    }
+
+    await Transaction.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'Transaksi berhasil dihapus permanen.' });
+  } catch (err) { next(err); }
+};
+
 exports.payDebt = async (req, res, next) => {
   try {
     const { amountPaid, paymentMethod, notes } = req.body;
