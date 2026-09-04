@@ -80,7 +80,19 @@ exports.create = async (req, res, next) => {
       if (!product || !product.isActive) throw new Error(`Produk tidak ditemukan.`);
       if (product.stock < item.qty) throw new Error(`Stok ${product.name} tidak mencukupi. Tersisa: ${product.stock}`);
 
-      const itemSubtotal = (product.sellPrice * item.qty) - (item.discount || 0);
+      let sellPrice = product.sellPrice;
+      let isCustomPrice = false;
+
+      if (item.customPrice !== undefined && item.customPrice !== null && item.customPrice !== '') {
+        const customPrice = Number(item.customPrice);
+        if (isNaN(customPrice) || customPrice < 0) {
+          throw new Error(`Harga custom untuk ${product.name} tidak valid.`);
+        }
+        sellPrice = customPrice;
+        isCustomPrice = true;
+      }
+
+      const itemSubtotal = (sellPrice * item.qty) - (item.discount || 0);
       subtotal += itemSubtotal;
 
       transactionItems.push({
@@ -89,7 +101,9 @@ exports.create = async (req, res, next) => {
         productSku: product.sku,
         qty: item.qty,
         buyPrice: product.buyPrice,
-        sellPrice: product.sellPrice,
+        sellPrice,
+        originalPrice: product.sellPrice,
+        isCustomPrice,
         discount: item.discount || 0,
         subtotal: itemSubtotal
       });

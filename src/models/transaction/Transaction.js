@@ -7,6 +7,8 @@ const transactionItemSchema = new mongoose.Schema({
   qty: { type: Number, required: true, min: 1 },
   buyPrice: { type: Number, required: true },
   sellPrice: { type: Number, required: true },
+  originalPrice: { type: Number },
+  isCustomPrice: { type: Boolean, default: false },
   discount: { type: Number, default: 0 },
   subtotal: { type: Number, required: true }
 }, { _id: false });
