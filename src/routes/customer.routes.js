@@ -8,6 +8,7 @@ router.use(authenticate);
 
 router.get('/', customerController.getAll);
 router.get('/debtors', customerController.getDebtors);
+router.get('/debt-reminders', customerController.getDebtReminders);
 router.get('/:id', validateId, validate, customerController.getOne);
 router.get('/:id/transactions', validateId, validate, customerController.getTransactions);
 router.get('/:id/points', validateId, validate, customerController.getPointHistory);

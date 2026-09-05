@@ -33,6 +33,42 @@ exports.getDebtors = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.getDebtReminders = async (req, res, next) => {
+  try {
+    const thresholdDays = parseInt(req.query.days) || 7; // piutang dianggap "perlu ditagih" kalau usianya >= sekian hari
+    const debtors = await Customer.find({ isActive: true, currentDebt: { $gt: 0 } }).sort({ currentDebt: -1 });
+
+    const results = [];
+    for (const c of debtors) {
+      // ambil transaksi hutang tertua milik pelanggan ini sebagai patokan "sejak kapan berhutang"
+      const oldestDebt = await Transaction.findOne({ customer: c._id, status: 'hutang' })
+        .sort({ createdAt: 1 })
+        .select('createdAt invoiceNumber');
+
+      const sinceDate = oldestDebt ? oldestDebt.createdAt : c.lastTransactionAt;
+      const daysOutstanding = sinceDate
+        ? Math.floor((Date.now() - new Date(sinceDate).getTime()) / 86400000)
+        : 0;
+
+      if (daysOutstanding >= thresholdDays) {
+        results.push({
+          customerId: c._id,
+          name: c.name,
+          phone: c.phone,
+          currentDebt: c.currentDebt,
+          oldestInvoice: oldestDebt?.invoiceNumber || null,
+          daysOutstanding
+        });
+      }
+    }
+
+    results.sort((a, b) => b.daysOutstanding - a.daysOutstanding);
+    const totalDebt = results.reduce((s, r) => s + r.currentDebt, 0);
+
+    res.json({ success: true, data: { customers: results, totalDebt, count: results.length, thresholdDays } });
+  } catch (err) { next(err); }
+};
+
 exports.getOne = async (req, res, next) => {
   try {
     const customer = await Customer.findById(req.params.id);
