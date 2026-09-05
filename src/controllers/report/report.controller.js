@@ -195,3 +195,39 @@ exports.cashflow = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
+
+exports.customPriceReport = async (req, res, next) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(1));
+    const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59)) : new Date();
+
+    const data = await Transaction.aggregate([
+      { $match: { createdAt: { $gte: start, $lte: end }, status: 'selesai' } },
+      { $unwind: '$items' },
+      { $match: { 'items.isCustomPrice': true } },
+      { $lookup: {
+        from: 'users',
+        localField: 'cashier',
+        foreignField: '_id',
+        as: 'cashierData'
+      }},
+      { $unwind: { path: '$cashierData', preserveNullAndEmptyArrays: true } },
+      { $project: {
+        invoiceNumber: 1,
+        createdAt: 1,
+        cashierName: { $ifNull: ['$cashierData.name', '-'] },
+        productName: '$items.productName',
+        qty: '$items.qty',
+        originalPrice: '$items.originalPrice',
+        sellPrice: '$items.sellPrice',
+        totalSelisih: { $multiply: [{ $subtract: ['$items.originalPrice', '$items.sellPrice'] }, '$items.qty'] }
+      }},
+      { $sort: { createdAt: -1 } }
+    ]);
+
+    const totalSelisih = data.reduce((s, d) => s + d.totalSelisih, 0);
+
+    res.json({ success: true, data: { items: data, totalSelisih, count: data.length } });
+  } catch (err) { next(err); }
+};

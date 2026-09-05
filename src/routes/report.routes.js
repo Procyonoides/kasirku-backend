@@ -11,5 +11,6 @@ router.get('/profit-loss', validateReportFilters, validate, reportController.pro
 router.get('/top-products', validateReportFilters, validate, reportController.topProducts);
 router.get('/top-categories', validateReportFilters, validate, reportController.topCategories);
 router.get('/cashflow', validateReportFilters, validate, reportController.cashflow);
+router.get('/custom-price', validateReportFilters, validate, reportController.customPriceReport);
 
 module.exports = router;
