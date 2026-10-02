@@ -5,9 +5,45 @@ const DebtPayment = require('../../models/customer/DebtPayment');
 const mongoose = require('mongoose');
 const PointHistory = require('../../models/customer/PointHistory');
 
+// Escape karakter khusus regex supaya pencarian aman (mis. tanda kurung, titik)
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Ringkasan penjualan per produk untuk kata kunci tertentu (nama atau SKU)
+// Transaksi dibatalkan tidak dihitung, kecuali memang difilter status "dibatalkan"
+const buildProductSummary = async (query, productRegex) => {
+  const match = { ...query, status: query.status || { $ne: 'dibatalkan' } };
+  if (match.customer) match.customer = new mongoose.Types.ObjectId(match.customer);
+
+  const [byProduct, transactionCount] = await Promise.all([
+    Transaction.aggregate([
+      { $match: match },
+      { $unwind: '$items' },
+      { $match: { $or: [{ 'items.productName': productRegex }, { 'items.productSku': productRegex }] } },
+      { $group: {
+        _id: '$items.product',
+        productName: { $first: '$items.productName' },
+        totalQty: { $sum: '$items.qty' },
+        totalRevenue: { $sum: '$items.subtotal' }
+      }},
+      { $sort: { totalQty: -1 } },
+      { $limit: 50 }
+    ]),
+    Transaction.countDocuments(match)
+  ]);
+
+  return {
+    totals: {
+      totalQty: byProduct.reduce((s, p) => s + p.totalQty, 0),
+      totalRevenue: byProduct.reduce((s, p) => s + p.totalRevenue, 0),
+      transactionCount
+    },
+    byProduct
+  };
+};
+
 exports.getAll = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, startDate, endDate, status, paymentMethod } = req.query;
+    const { page = 1, limit = 20, startDate, endDate, status, paymentMethod, product } = req.query;
     const query = {};
 
     if (status) query.status = status;
@@ -19,6 +55,13 @@ exports.getAll = async (req, res, next) => {
       if (endDate) query.createdAt.$lte = new Date(new Date(endDate).setHours(23, 59, 59));
     }
 
+    // Cari transaksi yang memuat produk tertentu (nama atau SKU)
+    let productRegex = null;
+    if (product && product.trim()) {
+      productRegex = { $regex: escapeRegex(product.trim()), $options: 'i' };
+      query.$or = [{ 'items.productName': productRegex }, { 'items.productSku': productRegex }];
+    }
+
     const total = await Transaction.countDocuments(query);
     const transactions = await Transaction.find(query)
       .populate('customer', 'name phone')
@@ -27,7 +70,10 @@ exports.getAll = async (req, res, next) => {
       .skip((page - 1) * limit)
       .limit(Number(limit));
 
-    res.json({ success: true, data: transactions, pagination: { total, page: Number(page), pages: Math.ceil(total / limit) } });
+    const response = { success: true, data: transactions, pagination: { total, page: Number(page), pages: Math.ceil(total / limit) } };
+    if (productRegex) response.productSummary = await buildProductSummary(query, productRegex);
+
+    res.json(response);
   } catch (err) { next(err); }
 };
 

@@ -7,10 +7,11 @@ const escapeRegex = (str) => {
 
 exports.getAll = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, category, search, status } = req.query;
+    const { page = 1, limit = 20, category, search, status, inStock } = req.query;
     const query = { isActive: true };
 
     if (category) query.category = category;
+    if (inStock === 'true') query.stock = { $gt: 0 };
     if (status === 'habis') query.stock = 0;
     if (status === 'menipis') query.$expr = { $lte: ['$stock', '$minStock'] };
     if (search) {
