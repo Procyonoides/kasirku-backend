@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const debtPaymentSchema = new mongoose.Schema({
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null }, // kosong untuk hutang tanpa pelanggan terdaftar
   transaction: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', required: true },
   totalDebt: { type: Number, required: true },
   amountPaid: { type: Number, required: true },

@@ -32,6 +32,7 @@ const transactionSchema = new mongoose.Schema({
   amountPaid: { type: Number, default: 0 },
   change: { type: Number, default: 0 },
   isDebt: { type: Boolean, default: false },
+  downPayment: { type: Number, default: 0 },
   pointsUsed: { type: Number, default: 0 },
   pointsEarned: { type: Number, default: 0 },
   pointsDiscount: { type: Number, default: 0 },

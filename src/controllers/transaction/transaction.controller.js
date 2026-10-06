@@ -8,17 +8,24 @@ const PointHistory = require('../../models/customer/PointHistory');
 // Escape karakter khusus regex supaya pencarian aman (mis. tanda kurung, titik)
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Ringkasan penjualan per produk untuk kata kunci tertentu (nama atau SKU)
+// Ringkasan penjualan per produk berdasarkan filter item (nama/SKU dan/atau kategori)
 // Transaksi dibatalkan tidak dihitung, kecuali memang difilter status "dibatalkan"
-const buildProductSummary = async (query, productRegex) => {
+const buildProductSummary = async (query, { productRegex, categoryProductIds }) => {
   const match = { ...query, status: query.status || { $ne: 'dibatalkan' } };
   if (match.customer) match.customer = new mongoose.Types.ObjectId(match.customer);
+
+  // Syarat per item (setelah $unwind, nama field diawali "items.")
+  const itemStage = {};
+  if (categoryProductIds) itemStage['items.product'] = { $in: categoryProductIds };
+  if (productRegex) {
+    itemStage.$or = [{ 'items.productName': productRegex }, { 'items.productSku': productRegex }];
+  }
 
   const [byProduct, transactionCount] = await Promise.all([
     Transaction.aggregate([
       { $match: match },
       { $unwind: '$items' },
-      { $match: { $or: [{ 'items.productName': productRegex }, { 'items.productSku': productRegex }] } },
+      { $match: itemStage },
       { $group: {
         _id: '$items.product',
         productName: { $first: '$items.productName' },
@@ -43,7 +50,7 @@ const buildProductSummary = async (query, productRegex) => {
 
 exports.getAll = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, startDate, endDate, status, paymentMethod, product } = req.query;
+    const { page = 1, limit = 20, startDate, endDate, status, paymentMethod, product, category } = req.query;
     const query = {};
 
     if (status) query.status = status;
@@ -55,12 +62,23 @@ exports.getAll = async (req, res, next) => {
       if (endDate) query.createdAt.$lte = new Date(new Date(endDate).setHours(23, 59, 59));
     }
 
-    // Cari transaksi yang memuat produk tertentu (nama atau SKU)
+    // Filter berdasarkan produk (nama/SKU) dan/atau kategori.
+    // Item transaksi tidak menyimpan kategori, jadi dicari lewat daftar produk di kategori itu.
+    // $elemMatch memastikan SATU item yang sama memenuhi semua syarat.
     let productRegex = null;
+    let categoryProductIds = null;
+    const itemMatch = {};
+
+    if (category) {
+      categoryProductIds = await Product.find({ category }).distinct('_id');
+      itemMatch.product = { $in: categoryProductIds };
+    }
     if (product && product.trim()) {
       productRegex = { $regex: escapeRegex(product.trim()), $options: 'i' };
-      query.$or = [{ 'items.productName': productRegex }, { 'items.productSku': productRegex }];
+      itemMatch.$or = [{ productName: productRegex }, { productSku: productRegex }];
     }
+    const hasItemFilter = Object.keys(itemMatch).length > 0;
+    if (hasItemFilter) query.items = { $elemMatch: itemMatch };
 
     const total = await Transaction.countDocuments(query);
     const transactions = await Transaction.find(query)
@@ -71,7 +89,7 @@ exports.getAll = async (req, res, next) => {
       .limit(Number(limit));
 
     const response = { success: true, data: transactions, pagination: { total, page: Number(page), pages: Math.ceil(total / limit) } };
-    if (productRegex) response.productSummary = await buildProductSummary(query, productRegex);
+    if (hasItemFilter) response.productSummary = await buildProductSummary(query, { productRegex, categoryProductIds });
 
     res.json(response);
   } catch (err) { next(err); }
@@ -116,7 +134,7 @@ exports.create = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes, pointsUsed } = req.body;
+    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes, pointsUsed, downPayment: downPaymentInput } = req.body;
 
     let subtotal = 0;
     const transactionItems = [];
@@ -175,12 +193,19 @@ exports.create = async (req, res, next) => {
     const isDebt = paymentMethod === 'hutang';
     const change = isDebt ? 0 : Math.max(0, (amountPaid || 0) - grandTotal);
 
+    // Uang muka (hutang sebagian): hanya berlaku untuk metode hutang
+    const downPayment = isDebt ? Math.max(0, Number(downPaymentInput) || 0) : 0;
+    if (isDebt && downPayment > 0 && downPayment >= grandTotal) {
+      throw new Error('Uang muka harus kurang dari total. Untuk bayar penuh, pilih metode pembayaran Tunai.');
+    }
+    const debtAmount = isDebt ? grandTotal - downPayment : 0; // sisa yang benar-benar jadi hutang
+
     let customerName = 'Umum';
     if (customerId) {
       const customer = await Customer.findById(customerId).session(session);
       if (customer) {
         customerName = customer.name;
-        if (isDebt) customer.currentDebt += grandTotal;
+        if (isDebt) customer.currentDebt += debtAmount;
         customer.totalTransactions += 1;
         customer.totalSpent += grandTotal;
         customer.lastTransactionAt = new Date();
@@ -235,6 +260,7 @@ exports.create = async (req, res, next) => {
         amountPaid: amountPaid || grandTotal,
         change,
         isDebt,
+        downPayment,
         status: isDebt ? 'hutang' : 'selesai',
         notes,
         pointsUsed: pointsToUse,
@@ -261,11 +287,68 @@ exports.cancel = async (req, res, next) => {
     if (!transaction) return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
     if (transaction.status === 'dibatalkan') return res.status(400).json({ success: false, message: 'Transaksi sudah dibatalkan.' });
 
+    // Hutang yang sudah ada cicilan susulan tidak boleh dibatalkan
+    if (transaction.paymentMethod === 'hutang') {
+      const cicilan = await DebtPayment.countDocuments({ transaction: transaction._id });
+      if (cicilan > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transaksi hutang yang sudah ada pembayaran cicilan tidak bisa dibatalkan.'
+        });
+      }
+    }
+
     for (const item of transaction.items) {
       await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.qty } });
     }
 
+    // Pelanggan terdaftar: balikkan statistik, saldo hutang, dan poin dari transaksi ini
+    if (transaction.customer) {
+      const customer = await Customer.findById(transaction.customer);
+      if (customer) {
+        if (transaction.isDebt) {
+          customer.currentDebt = Math.max(0, customer.currentDebt - (transaction.grandTotal - (transaction.downPayment || 0)));
+        }
+        customer.totalTransactions = Math.max(0, customer.totalTransactions - 1);
+        customer.totalSpent = Math.max(0, customer.totalSpent - transaction.grandTotal);
+
+        // Poin yang dipakai dikembalikan
+        const pointsUsed = transaction.pointsUsed || 0;
+        if (pointsUsed > 0) {
+          await PointHistory.create({
+            customer: customer._id,
+            transaction: transaction._id,
+            type: 'earned',
+            points: pointsUsed,
+            description: `Poin dikembalikan (pembatalan ${transaction.invoiceNumber})`,
+            balanceBefore: customer.points,
+            balanceAfter: customer.points + pointsUsed
+          });
+          customer.points += pointsUsed;
+        }
+
+        // Poin yang didapat dari transaksi ini ditarik kembali
+        const pointsEarned = transaction.pointsEarned || 0;
+        if (pointsEarned > 0) {
+          const balanceAfter = Math.max(0, customer.points - pointsEarned);
+          await PointHistory.create({
+            customer: customer._id,
+            transaction: transaction._id,
+            type: 'used',
+            points: customer.points - balanceAfter,
+            description: `Poin dibatalkan (pembatalan ${transaction.invoiceNumber})`,
+            balanceBefore: customer.points,
+            balanceAfter
+          });
+          customer.points = balanceAfter;
+        }
+
+        await customer.save();
+      }
+    }
+
     transaction.status = 'dibatalkan';
+    transaction.isDebt = false;
     await transaction.save();
     res.json({ success: true, message: 'Transaksi dibatalkan dan stok dikembalikan.' });
   } catch (err) { next(err); }
@@ -293,13 +376,77 @@ exports.remove = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// Total semua pembayaran hutang yang sudah masuk untuk satu transaksi
+const getTotalDebtPaid = async (transactionId) => {
+  const [row] = await DebtPayment.aggregate([
+    { $match: { transaction: new mongoose.Types.ObjectId(transactionId) } },
+    { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+  ]);
+  return row ? row.total : 0;
+};
+
+// Info hutang satu transaksi: total, sudah dibayar, sisa, dan riwayat pembayaran
+exports.getDebtInfo = async (req, res, next) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction || transaction.paymentMethod !== 'hutang') {
+      return res.status(404).json({ success: false, message: 'Data hutang tidak ditemukan.' });
+    }
+
+    const payments = await DebtPayment.find({ transaction: transaction._id })
+      .populate('recordedBy', 'name')
+      .sort({ createdAt: 1 });
+    const downPayment = transaction.downPayment || 0;
+    const totalPaid = downPayment + payments.reduce((s, p) => s + p.amountPaid, 0);
+
+    res.json({
+      success: true,
+      data: {
+        invoiceNumber: transaction.invoiceNumber,
+        customerName: transaction.customerName,
+        notes: transaction.notes,
+        status: transaction.status,
+        isDebt: transaction.isDebt,
+        grandTotal: transaction.grandTotal,
+        downPayment,
+        totalPaid,
+        remaining: Math.max(0, transaction.grandTotal - totalPaid),
+        payments
+      }
+    });
+  } catch (err) { next(err); }
+};
+
 exports.payDebt = async (req, res, next) => {
   try {
-    const { amountPaid, paymentMethod, notes } = req.body;
-    const transaction = await Transaction.findById(req.params.id);
-    if (!transaction || !transaction.isDebt) return res.status(404).json({ success: false, message: 'Data hutang tidak ditemukan.' });
+    const { paymentMethod = 'tunai', notes = '' } = req.body;
+    const amountPaid = Number(req.body.amountPaid);
 
-    const remaining = transaction.grandTotal - amountPaid;
+    if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+      return res.status(400).json({ success: false, message: 'Nominal pembayaran harus lebih dari 0.' });
+    }
+
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction || !transaction.isDebt) {
+      return res.status(404).json({ success: false, message: 'Data hutang tidak ditemukan.' });
+    }
+    if (transaction.status === 'dibatalkan') {
+      return res.status(400).json({ success: false, message: 'Transaksi ini sudah dibatalkan.' });
+    }
+
+    // Sisa hutang dihitung dari SEMUA pembayaran sebelumnya, bukan hanya pembayaran ini
+    const debtTotal = transaction.grandTotal - (transaction.downPayment || 0); // yang benar-benar berhutang
+    const paidBefore = await getTotalDebtPaid(transaction._id);
+    const remainingBefore = debtTotal - paidBefore;
+
+    if (amountPaid > remainingBefore) {
+      return res.status(400).json({
+        success: false,
+        message: `Nominal melebihi sisa hutang (Rp ${remainingBefore.toLocaleString('id-ID')}).`
+      });
+    }
+
+    const remaining = remainingBefore - amountPaid;
     if (remaining <= 0) {
       transaction.status = 'selesai';
       transaction.isDebt = false;
@@ -311,9 +458,9 @@ exports.payDebt = async (req, res, next) => {
     }
 
     await DebtPayment.create({
-      customer: transaction.customer,
+      customer: transaction.customer || null,
       transaction: transaction._id,
-      totalDebt: transaction.grandTotal,
+      totalDebt: debtTotal,
       amountPaid,
       remainingDebt: Math.max(0, remaining),
       paymentMethod,
