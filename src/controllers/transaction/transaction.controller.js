@@ -134,6 +134,20 @@ exports.getAll = async (req, res, next) => {
     if (hasItemFilter) response.productSummary = await buildProductSummary(query, { productRegex, categoryProductIds });
     if (status === 'hutang') response.debtSummary = await buildDebtSummary(query);
 
+    // Total pendapatan (status selesai) dari SEMUA hasil filter, bukan hanya halaman yang tampil.
+    // Kalau filter status memilih status lain (hutang/dibatalkan), tidak ada yang berstatus selesai -> 0.
+    if (query.status && query.status !== 'selesai') {
+      response.totalRevenue = 0;
+    } else {
+      const revenueMatch = { ...query, status: 'selesai' };
+      if (revenueMatch.customer) revenueMatch.customer = new mongoose.Types.ObjectId(revenueMatch.customer);
+      const [revenue] = await Transaction.aggregate([
+        { $match: revenueMatch },
+        { $group: { _id: null, total: { $sum: '$grandTotal' } } }
+      ]);
+      response.totalRevenue = revenue ? revenue.total : 0;
+    }
+
     res.json(response);
   } catch (err) { next(err); }
 };

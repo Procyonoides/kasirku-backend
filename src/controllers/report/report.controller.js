@@ -1,6 +1,7 @@
 const Transaction = require('../../models/transaction/Transaction');
 const Finance = require('../../models/finance/Finance');
 const { settledBetween, settledDate } = require('../../utils/reportFilters');
+const { getCashInEntries, buildCashflow, dayKey, AUTO_CATEGORIES } = require('../../utils/cashIn');
 
 exports.salesReport = async (req, res, next) => {
   try {
@@ -150,50 +151,21 @@ exports.cashflow = async (req, res, next) => {
     const start = startDate ? new Date(startDate) : new Date(new Date().setDate(1));
     const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59)) : new Date();
 
-    const financeRecords = await Finance.find({ 
-      date: { $gte: start, $lte: end } 
-    }).sort('date');
+    // Catatan manual di menu Keuangan + kas masuk otomatis dari kasir (penjualan, uang muka, cicilan).
+    // Catatan manual berkategori penjualan/piutang_masuk tidak dihitung lagi supaya tidak dobel.
+    const [financeRecords, autoEntries] = await Promise.all([
+      Finance.find({ date: { $gte: start, $lte: end }, category: { $nin: AUTO_CATEGORIES } }).sort('date'),
+      getCashInEntries(start, end)
+    ]);
 
-    // Hitung per hari
-    const dailyMap = {};
-    financeRecords.forEach(r => {
-      const day = r.date.toISOString().split('T')[0];
-      
-      // Inisialisasi dengan items[] sekalian
-      if (!dailyMap[day]) {
-        dailyMap[day] = { _id: day, income: 0, expense: 0, net: 0, items: [] };
-      }
-      
-      if (r.type === 'pemasukan') dailyMap[day].income += r.amount;
-      else dailyMap[day].expense += r.amount;
-      dailyMap[day].net = dailyMap[day].income - dailyMap[day].expense;
-      
-      // Push item detail
-      dailyMap[day].items.push({
-        type: r.type,
-        category: r.category,
-        description: r.description,
-        amount: r.amount
-      });
-    });
+    const entries = [
+      ...financeRecords.map(r => ({
+        day: dayKey(r.date), type: r.type, category: r.category, description: r.description, amount: r.amount
+      })),
+      ...autoEntries
+    ];
 
-    const daily = Object.values(dailyMap).sort((a, b) => a._id.localeCompare(b._id));
-    const totalIncome = financeRecords
-      .filter(r => r.type === 'pemasukan')
-      .reduce((s, r) => s + r.amount, 0);
-    const totalExpense = financeRecords
-      .filter(r => r.type === 'pengeluaran')
-      .reduce((s, r) => s + r.amount, 0);
-
-    res.json({ 
-      success: true, 
-      data: { 
-        totalIncome, 
-        totalExpense, 
-        netCashflow: totalIncome - totalExpense,
-        daily 
-      } 
-    });
+    res.json({ success: true, data: buildCashflow(entries) });
   } catch (err) { next(err); }
 };
 
