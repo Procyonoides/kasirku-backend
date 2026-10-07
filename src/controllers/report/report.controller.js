@@ -1,5 +1,6 @@
 const Transaction = require('../../models/transaction/Transaction');
 const Finance = require('../../models/finance/Finance');
+const { settledBetween, settledDate } = require('../../utils/reportFilters');
 
 exports.salesReport = async (req, res, next) => {
   try {
@@ -9,9 +10,9 @@ exports.salesReport = async (req, res, next) => {
     const format = groupBy === 'month' ? '%Y-%m' : '%Y-%m-%d';
 
     const data = await Transaction.aggregate([
-      { $match: { createdAt: { $gte: start, $lte: end }, status: 'selesai' } },
+      { $match: settledBetween(start, end) },
       { $group: {
-        _id: { $dateToString: { format, date: '$createdAt' } },
+        _id: { $dateToString: { format, date: settledDate } },
         revenue: { $sum: '$grandTotal' },
         transactions: { $sum: 1 },
         items: { $sum: {
@@ -42,7 +43,7 @@ exports.profitLoss = async (req, res, next) => {
 
     const [salesData, expenses, income] = await Promise.all([
       Transaction.aggregate([
-        { $match: { createdAt: { $gte: start, $lte: end }, status: 'selesai' } },
+        { $match: settledBetween(start, end) },
         { $group: {
           _id: null,
           totalRevenue: { $sum: '$grandTotal' },
@@ -81,7 +82,7 @@ exports.topProducts = async (req, res, next) => {
     const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59)) : new Date();
 
     const data = await Transaction.aggregate([
-      { $match: { createdAt: { $gte: start, $lte: end }, status: 'selesai' } },
+      { $match: settledBetween(start, end) },
       { $unwind: '$items' },
       { $group: {
         _id: '$items.product',
@@ -105,7 +106,7 @@ exports.topCategories = async (req, res, next) => {
     const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59)) : new Date();
 
     const data = await Transaction.aggregate([
-      { $match: { createdAt: { $gte: start, $lte: end }, status: 'selesai' } },
+      { $match: settledBetween(start, end) },
       { $unwind: '$items' },
       { $lookup: {
         from: 'products',
@@ -203,7 +204,7 @@ exports.customPriceReport = async (req, res, next) => {
     const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59)) : new Date();
 
     const data = await Transaction.aggregate([
-      { $match: { createdAt: { $gte: start, $lte: end }, status: 'selesai' } },
+      { $match: settledBetween(start, end) },
       { $unwind: '$items' },
       { $match: { 'items.isCustomPrice': true } },
       { $lookup: {

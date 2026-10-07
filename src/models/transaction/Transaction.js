@@ -33,6 +33,7 @@ const transactionSchema = new mongoose.Schema({
   change: { type: Number, default: 0 },
   isDebt: { type: Boolean, default: false },
   downPayment: { type: Number, default: 0 },
+  keptChange: { type: Number, default: 0 },
   pointsUsed: { type: Number, default: 0 },
   pointsEarned: { type: Number, default: 0 },
   pointsDiscount: { type: Number, default: 0 },
@@ -45,9 +46,21 @@ const transactionSchema = new mongoose.Schema({
 transactionSchema.pre('save', async function () {
   if (!this.invoiceNumber) {
     const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const count = await mongoose.model('Transaction').countDocuments();
-    this.invoiceNumber = `INV-${dateStr}-${String(count + 1).padStart(4, '0')}`;
+
+    // Tanggal lokal (bukan UTC), supaya transaksi pagi hari tidak bertanggal kemarin
+    const pad = (n) => String(n).padStart(2, '0');
+    const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+
+    // Nomor urut = nomor tertinggi yang sudah ada + 1 (bukan jumlah transaksi),
+    // supaya tidak bentrok setelah ada transaksi yang dihapus permanen
+    const [row] = await mongoose.model('Transaction').aggregate([
+      { $match: { invoiceNumber: { $regex: /^INV-\d{8}-\d+$/ } } },
+      { $project: { seq: { $toInt: { $arrayElemAt: [{ $split: ['$invoiceNumber', '-'] }, 2] } } } },
+      { $group: { _id: null, max: { $max: '$seq' } } }
+    ]);
+    const nextSeq = (row ? row.max : 0) + 1;
+
+    this.invoiceNumber = `INV-${dateStr}-${String(nextSeq).padStart(4, '0')}`;
   }
 });
 

@@ -1,16 +1,19 @@
 const Transaction = require('../../models/transaction/Transaction');
 const Product = require('../../models/product/Product');
 const Customer = require('../../models/customer/Customer');
+const { settledBetween, settledDate } = require('../../utils/reportFilters');
+const { getCashIn } = require('../../utils/cashIn');
 
 exports.getStats = async (req, res, next) => {
   try {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const endOfToday = new Date(tomorrow.getTime() - 1);
 
     const [todayTx, monthTx, totalProducts, totalCustomers, debtors, lowStock] = await Promise.all([
-      Transaction.find({ createdAt: { $gte: today, $lt: tomorrow }, status: 'selesai' }),
-      Transaction.find({ createdAt: { $gte: monthStart }, status: 'selesai' }),
+      Transaction.find(settledBetween(today, endOfToday)),
+      Transaction.find(settledBetween(monthStart, endOfToday)),
       Product.countDocuments({ isActive: true }),
       Customer.countDocuments({ isActive: true }),
       Customer.countDocuments({ currentDebt: { $gt: 0 } }),
@@ -46,12 +49,12 @@ exports.salesChart = async (req, res, next) => {
       startDate.setUTCHours(startDate.getUTCHours() >= 17 ? 17 : -7, 0, 0, 0);
 
       const sales = await Transaction.aggregate([
-        { $match: { createdAt: { $gte: startDate }, status: 'selesai' } },
+        { $match: settledBetween(startDate, new Date()) },
         { $group: {
           _id: {
             $dateToString: {
               format: '%H:%M:%S',
-              date: '$createdAt',
+              date: settledDate,
               timezone: 'Asia/Jakarta'
             }
           },
@@ -71,9 +74,9 @@ exports.salesChart = async (req, res, next) => {
     startDate.setHours(0, 0, 0, 0);
 
     const sales = await Transaction.aggregate([
-      { $match: { createdAt: { $gte: startDate }, status: 'selesai' } },
+      { $match: settledBetween(startDate, new Date()) },
       { $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+        _id: { $dateToString: { format: '%Y-%m-%d', date: settledDate } },
         revenue: { $sum: '$grandTotal' },
         count: { $sum: 1 }
       }},
@@ -103,10 +106,9 @@ exports.getDailyRecap = async (req, res, next) => {
     tomorrow.setDate(today.getDate() + 1);
 
     // Ambil semua transaksi hari ini
-    const transactions = await Transaction.find({
-      createdAt: { $gte: today, $lt: tomorrow },
-      status: 'selesai'
-    }).populate('customer', 'name');
+    const transactions = await Transaction.find(
+      settledBetween(today, new Date(tomorrow.getTime() - 1))
+    ).populate('customer', 'name');
 
     // Breakdown pembayaran
     const paymentBreakdown = {};
@@ -150,6 +152,9 @@ exports.getDailyRecap = async (req, res, next) => {
       .sort((a, b) => b.total - a.total)
       .slice(0, 5);
 
+    // Kas masuk hari ini (uang yang benar-benar diterima, termasuk uang muka & cicilan hutang)
+    const cashIn = await getCashIn(today, new Date(tomorrow.getTime() - 1));
+    
     // Summary
     const totalRevenue = transactions.reduce((s, t) => s + t.grandTotal, 0);
     const totalProfit = transactions.reduce((s, t) => {
@@ -166,6 +171,7 @@ exports.getDailyRecap = async (req, res, next) => {
           avgTransaction: transactions.length > 0 ? Math.round(totalRevenue / transactions.length) : 0
         },
         paymentBreakdown,
+        cashIn,
         topProducts,
         topCustomers
       }

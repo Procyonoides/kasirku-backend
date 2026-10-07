@@ -4,6 +4,8 @@ const Customer = require('../../models/customer/Customer');
 const DebtPayment = require('../../models/customer/DebtPayment');
 const mongoose = require('mongoose');
 const PointHistory = require('../../models/customer/PointHistory');
+const Finance = require('../../models/finance/Finance');
+const { settledBetween } = require('../../utils/reportFilters');
 
 // Escape karakter khusus regex supaya pencarian aman (mis. tanda kurung, titik)
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -48,9 +50,25 @@ const buildProductSummary = async (query, { productRegex, categoryProductIds }) 
   };
 };
 
+// Total hutang yang belum lunas untuk transaksi yang cocok dengan filter
+const buildDebtSummary = async (query) => {
+  const debts = await Transaction.find({ ...query, isDebt: true }).select('grandTotal downPayment');
+  const ids = debts.map(t => t._id);
+
+  const [paid] = ids.length
+    ? await DebtPayment.aggregate([
+        { $match: { transaction: { $in: ids } } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ])
+    : [];
+
+  const totalDebt = debts.reduce((s, t) => s + t.grandTotal - (t.downPayment || 0), 0);
+  return { count: debts.length, totalRemaining: Math.max(0, totalDebt - (paid ? paid.total : 0)) };
+};
+
 exports.getAll = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, startDate, endDate, status, paymentMethod, product, category } = req.query;
+    const { page = 1, limit = 20, startDate, endDate, status, paymentMethod, product, category, search, sort } = req.query;
     const query = {};
 
     if (status) query.status = status;
@@ -80,16 +98,41 @@ exports.getAll = async (req, res, next) => {
     const hasItemFilter = Object.keys(itemMatch).length > 0;
     if (hasItemFilter) query.items = { $elemMatch: itemMatch };
 
+    // Cari teks bebas: nomor invoice, nama pelanggan, atau catatan
+    if (search && search.trim()) {
+      const textRegex = { $regex: escapeRegex(search.trim()), $options: 'i' };
+      query.$and = [{ $or: [{ invoiceNumber: textRegex }, { customerName: textRegex }, { notes: textRegex }] }];
+    }
+
     const total = await Transaction.countDocuments(query);
     const transactions = await Transaction.find(query)
       .populate('customer', 'name phone')
       .populate('cashier', 'name')
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: sort === 'oldest' ? 1 : -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit));
 
-    const response = { success: true, data: transactions, pagination: { total, page: Number(page), pages: Math.ceil(total / limit) } };
+    // Sisa hutang per transaksi hutang di halaman ini
+    const debtIds = transactions.filter(t => t.isDebt).map(t => t._id);
+    const paidMap = new Map();
+    if (debtIds.length > 0) {
+      const paidRows = await DebtPayment.aggregate([
+        { $match: { transaction: { $in: debtIds } } },
+        { $group: { _id: '$transaction', total: { $sum: '$amountPaid' } } }
+      ]);
+      paidRows.forEach(r => paidMap.set(String(r._id), r.total));
+    }
+    const data = transactions.map(t => {
+      const obj = t.toJSON();
+      if (t.isDebt) {
+        obj.debtRemaining = Math.max(0, t.grandTotal - (t.downPayment || 0) - (paidMap.get(String(t._id)) || 0));
+      }
+      return obj;
+    });
+
+    const response = { success: true, data, pagination: { total, page: Number(page), pages: Math.ceil(total / limit) } };
     if (hasItemFilter) response.productSummary = await buildProductSummary(query, { productRegex, categoryProductIds });
+    if (status === 'hutang') response.debtSummary = await buildDebtSummary(query);
 
     res.json(response);
   } catch (err) { next(err); }
@@ -100,7 +143,7 @@ exports.getToday = async (req, res, next) => {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const end = new Date(); end.setHours(23, 59, 59, 999);
 
-    const transactions = await Transaction.find({ createdAt: { $gte: start, $lte: end }, status: 'selesai' })
+    const transactions = await Transaction.find(settledBetween(start, end))
       .populate('customer', 'name').sort({ createdAt: -1 });
 
     const totalRevenue = transactions.reduce((sum, t) => sum + t.grandTotal, 0);
@@ -134,7 +177,7 @@ exports.create = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes, pointsUsed, downPayment: downPaymentInput } = req.body;
+    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes, pointsUsed, downPayment: downPaymentInput, keepChange } = req.body;
 
     let subtotal = 0;
     const transactionItems = [];
@@ -192,6 +235,9 @@ exports.create = async (req, res, next) => {
 
     const isDebt = paymentMethod === 'hutang';
     const change = isDebt ? 0 : Math.max(0, (amountPaid || 0) - grandTotal);
+
+    // Kembalian tidak diambil: hanya untuk pembayaran tunai yang memang ada kembaliannya
+    const keptChange = (keepChange === true && paymentMethod === 'tunai' && change > 0) ? change : 0;
 
     // Uang muka (hutang sebagian): hanya berlaku untuk metode hutang
     const downPayment = isDebt ? Math.max(0, Number(downPaymentInput) || 0) : 0;
@@ -261,6 +307,7 @@ exports.create = async (req, res, next) => {
         change,
         isDebt,
         downPayment,
+        keptChange,
         status: isDebt ? 'hutang' : 'selesai',
         notes,
         pointsUsed: pointsToUse,
@@ -270,6 +317,19 @@ exports.create = async (req, res, next) => {
     });
 
     await transaction.save({ session });
+
+    // Kembalian yang tidak diambil dicatat otomatis sebagai pemasukan lain di Keuangan
+    if (keptChange > 0) {
+      await Finance.create([{
+        type: 'pemasukan',
+        category: 'lain_lain_masuk',
+        amount: keptChange,
+        description: `Kembalian tidak diambil (${transaction.invoiceNumber})`,
+        transactionRef: transaction._id,
+        paymentMethod: 'tunai',
+        recordedBy: req.user._id
+      }], { session });
+    }
 
     await session.commitTransaction();
     res.status(201).json({ success: true, message: 'Transaksi berhasil.', data: transaction });
@@ -345,6 +405,11 @@ exports.cancel = async (req, res, next) => {
 
         await customer.save();
       }
+    }
+
+    // Kembalian yang tidak diambil ikut dibatalkan (catatan pemasukan di Keuangan dihapus)
+    if (transaction.keptChange > 0) {
+      await Finance.deleteMany({ transactionRef: transaction._id });
     }
 
     transaction.status = 'dibatalkan';
