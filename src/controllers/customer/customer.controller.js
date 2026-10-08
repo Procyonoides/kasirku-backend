@@ -1,6 +1,7 @@
 const Customer = require('../../models/customer/Customer');
 const Transaction = require('../../models/transaction/Transaction');
 const PointHistory = require('../../models/customer/PointHistory');
+const DebtPayment = require('../../models/customer/DebtPayment');
 
 // Helper function to escape regex special characters (prevent DOS attacks)
 const escapeRegex = (str) => {
@@ -58,6 +59,37 @@ exports.getDebtReminders = async (req, res, next) => {
           currentDebt: c.currentDebt,
           oldestInvoice: oldestDebt?.invoiceNumber || null,
           daysOutstanding
+        });
+      }
+    }
+
+    // Hutang tanpa pelanggan terdaftar: tidak punya Customer.currentDebt, jadi dihitung per transaksi
+    const anonDebts = await Transaction.find({ customer: null, isDebt: true, status: 'hutang' })
+      .select('createdAt invoiceNumber grandTotal downPayment notes');
+
+    if (anonDebts.length) {
+      const paidAgg = await DebtPayment.aggregate([
+        { $match: { transaction: { $in: anonDebts.map(t => t._id) } } },
+        { $group: { _id: '$transaction', total: { $sum: '$amountPaid' } } }
+      ]);
+      const paidMap = new Map(paidAgg.map(p => [String(p._id), p.total]));
+
+      for (const t of anonDebts) {
+        const remaining = t.grandTotal - (t.downPayment || 0) - (paidMap.get(String(t._id)) || 0);
+        if (remaining <= 0) continue;
+
+        const days = Math.floor((Date.now() - new Date(t.createdAt).getTime()) / 86400000);
+        if (days < thresholdDays) continue;
+
+        results.push({
+          customerId: null,
+          transactionId: t._id,
+          isAnonymous: true,
+          name: (t.notes || '').replace('[Hutang tanpa pelanggan terdaftar]', '').trim() || 'Tanpa nama',
+          phone: null,
+          currentDebt: remaining,
+          oldestInvoice: t.invoiceNumber,
+          daysOutstanding: days
         });
       }
     }
