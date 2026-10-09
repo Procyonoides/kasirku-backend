@@ -191,7 +191,7 @@ exports.create = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes, pointsUsed, downPayment: downPaymentInput, keepChange } = req.body;
+    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes, pointsUsed, downPayment: downPaymentInput, downPaymentMethod: downPaymentMethodInput, keepChange } = req.body;
 
     let subtotal = 0;
     const transactionItems = [];
@@ -258,6 +258,13 @@ exports.create = async (req, res, next) => {
     if (isDebt && downPayment > 0 && downPayment >= grandTotal) {
       throw new Error('Uang muka harus kurang dari total. Untuk bayar penuh, pilih metode pembayaran Tunai.');
     }
+
+    // Metode pembayaran uang muka (kalau tidak dikirim, dianggap tunai seperti sebelumnya)
+    const DOWN_PAYMENT_METHODS = ['tunai', 'transfer', 'qris', 'kartu_debit', 'kartu_kredit'];
+    const downPaymentMethod = downPaymentMethodInput || 'tunai';
+    if (downPayment > 0 && !DOWN_PAYMENT_METHODS.includes(downPaymentMethod)) {
+      throw new Error('Metode pembayaran uang muka tidak valid.');
+    }
     const debtAmount = isDebt ? grandTotal - downPayment : 0; // sisa yang benar-benar jadi hutang
 
     let customerName = 'Umum';
@@ -321,6 +328,7 @@ exports.create = async (req, res, next) => {
         change,
         isDebt,
         downPayment,
+        downPaymentMethod: downPayment > 0 ? downPaymentMethod : 'tunai',
         keptChange,
         status: isDebt ? 'hutang' : 'selesai',
         notes,

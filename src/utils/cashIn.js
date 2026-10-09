@@ -1,7 +1,7 @@
 /**
  * Kas masuk: uang yang benar-benar diterima pada suatu periode.
  *  - Penjualan non-hutang  -> saat transaksi dibuat (per metode pembayaran)
- *  - Uang muka hutang      -> saat transaksi dibuat (dianggap tunai, karena metodenya belum dicatat)
+ *  - Uang muka hutang      -> saat transaksi dibuat (per metode uang muka; data lama tanpa metode dianggap tunai)
  *  - Cicilan hutang        -> saat cicilan dibayar (per metode pembayaran)
  *  - Pemasukan lain        -> catatan pemasukan di menu Keuangan (modal, pinjaman, kembalian tidak diambil, dll)
  * Hutang yang belum dibayar tidak dihitung. Transaksi dibatalkan tidak dihitung.
@@ -14,7 +14,7 @@ const DebtPayment = require('../models/customer/DebtPayment');
 const Finance = require('../models/finance/Finance');
 
 // Gabungkan hasil agregasi menjadi baris per metode pembayaran
-const buildCashInRows = (salesRows, downPaymentTotal, installmentRows, otherRows = []) => {
+const buildCashInRows = (salesRows, downPaymentRows, installmentRows, otherRows = []) => {
   const map = {};
   const ensure = (method) => {
     if (!map[method]) map[method] = { method, sales: 0, downPayment: 0, installments: 0, otherIncome: 0, total: 0 };
@@ -22,7 +22,7 @@ const buildCashInRows = (salesRows, downPaymentTotal, installmentRows, otherRows
   };
 
   salesRows.forEach(r => { ensure(r._id).sales += r.total; });
-  if (downPaymentTotal > 0) ensure('tunai').downPayment += downPaymentTotal;
+  downPaymentRows.forEach(r => { ensure(r._id || 'tunai').downPayment += r.total; });
   installmentRows.forEach(r => { ensure(r._id).installments += r.total; });
   otherRows.forEach(r => { ensure(r._id || 'tunai').otherIncome += r.total; });
 
@@ -44,14 +44,14 @@ const buildCashInRows = (salesRows, downPaymentTotal, installmentRows, otherRows
 const getCashIn = async (start, end) => {
   const range = { $gte: start, $lte: end };
 
-  const [salesRows, [downPayment], installmentRows, otherRows] = await Promise.all([
+  const [salesRows, downPaymentRows, installmentRows, otherRows] = await Promise.all([
     Transaction.aggregate([
       { $match: { createdAt: range, status: 'selesai', paymentMethod: { $ne: 'hutang' } } },
       { $group: { _id: '$paymentMethod', total: { $sum: '$grandTotal' } } }
     ]),
     Transaction.aggregate([
       { $match: { createdAt: range, paymentMethod: 'hutang', status: { $ne: 'dibatalkan' }, downPayment: { $gt: 0 } } },
-      { $group: { _id: null, total: { $sum: '$downPayment' } } }
+      { $group: { _id: { $ifNull: ['$downPaymentMethod', 'tunai'] }, total: { $sum: '$downPayment' } } }
     ]),
     DebtPayment.aggregate([
       { $match: { createdAt: range } },
@@ -63,7 +63,7 @@ const getCashIn = async (start, end) => {
     ])
   ]);
 
-  return buildCashInRows(salesRows, downPayment ? downPayment.total : 0, installmentRows, otherRows);
+  return buildCashInRows(salesRows, downPaymentRows, installmentRows, otherRows);
 };
 
 // ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ const buildCashInEntries = (sales, downPayments, installments) => {
   };
 
   sales.forEach(t => add(dayKey(t.createdAt), 'penjualan', `Penjualan ${methodLabel(t.paymentMethod)}`, 'transaksi', t.grandTotal));
-  downPayments.forEach(t => add(dayKey(t.createdAt), 'penjualan', 'Uang muka hutang', 'transaksi', t.downPayment));
+  downPayments.forEach(t => add(dayKey(t.createdAt), 'penjualan', `Uang muka hutang ${methodLabel(t.downPaymentMethod || 'tunai')}`, 'transaksi', t.downPayment));
   installments.forEach(p => add(dayKey(p.createdAt), 'piutang_masuk', `Cicilan hutang ${methodLabel(p.paymentMethod)}`, 'pembayaran', p.amountPaid));
 
   return Object.values(groups).map(g => ({
@@ -104,7 +104,7 @@ const getCashInEntries = async (start, end) => {
   const range = { $gte: start, $lte: end };
   const [sales, downPayments, installments] = await Promise.all([
     Transaction.find({ createdAt: range, status: 'selesai', paymentMethod: { $ne: 'hutang' } }).select('createdAt paymentMethod grandTotal'),
-    Transaction.find({ createdAt: range, paymentMethod: 'hutang', status: { $ne: 'dibatalkan' }, downPayment: { $gt: 0 } }).select('createdAt downPayment'),
+    Transaction.find({ createdAt: range, paymentMethod: 'hutang', status: { $ne: 'dibatalkan' }, downPayment: { $gt: 0 } }).select('createdAt downPayment downPaymentMethod'),
     DebtPayment.find({ createdAt: range }).select('createdAt paymentMethod amountPaid')
   ]);
   return buildCashInEntries(sales, downPayments, installments);

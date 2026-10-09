@@ -33,6 +33,7 @@ const transactionSchema = new mongoose.Schema({
   change: { type: Number, default: 0 },
   isDebt: { type: Boolean, default: false },
   downPayment: { type: Number, default: 0 },
+  downPaymentMethod: { type: String, enum: ['tunai', 'transfer', 'qris', 'kartu_debit', 'kartu_kredit'], default: 'tunai' },
   keptChange: { type: Number, default: 0 },
   pointsUsed: { type: Number, default: 0 },
   pointsEarned: { type: Number, default: 0 },
