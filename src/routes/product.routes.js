@@ -9,6 +9,7 @@ router.use(authenticate);
 
 router.get('/', productController.getAll);
 router.get('/low-stock', productController.getLowStock);
+router.get('/top-selling', productController.getTopSelling);
 router.get('/search', validateProductSearch, validate, productController.search);
 router.get('/:id', validateId, validate, productController.getOne);
 router.post('/', authorize('owner', 'admin'), validateProductCreate, validate, productController.create);

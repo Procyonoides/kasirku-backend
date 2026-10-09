@@ -1,4 +1,5 @@
 const Product = require('../../models/product/Product');
+const Transaction = require('../../models/transaction/Transaction');
 
 // Helper function to escape regex special characters
 const escapeRegex = (str) => {
@@ -32,6 +33,31 @@ exports.getAll = async (req, res, next) => {
       .limit(Number(limit));
 
     res.json({ success: true, data: products, pagination: { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / limit) } });
+  } catch (err) { next(err); }
+};
+
+// Produk terlaris (berdasarkan jumlah terjual) dalam N hari terakhir, untuk tab Terlaris di kasir
+exports.getTopSelling = async (req, res, next) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 30, 100);
+    const days = Math.min(Number(req.query.days) || 30, 365);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const top = await Transaction.aggregate([
+      { $match: { createdAt: { $gte: since }, status: { $ne: 'dibatalkan' } } },
+      { $unwind: '$items' },
+      { $group: { _id: '$items.product', sold: { $sum: '$items.qty' } } },
+      { $sort: { sold: -1 } },
+      { $limit: limit * 3 } // ambil lebih banyak: sebagian bisa tersaring (nonaktif atau stok habis)
+    ]);
+
+    const soldMap = new Map(top.map(t => [String(t._id), t.sold]));
+    const products = await Product.find({ _id: { $in: top.map(t => t._id) }, isActive: true, stock: { $gt: 0 } })
+      .populate('category', 'name color')
+      .populate('unit', 'name');
+
+    products.sort((a, b) => soldMap.get(String(b._id)) - soldMap.get(String(a._id)));
+    res.json({ success: true, data: products.slice(0, limit) });
   } catch (err) { next(err); }
 };
 
