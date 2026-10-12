@@ -28,6 +28,8 @@ router.use(authenticate);
 router.use(authorize('owner'));
 
 router.get('/download', backupController.backup);
+router.post('/save', backupController.save);
+router.get('/list', backupController.list);
 router.post('/restore', upload.single('backup'), backupController.restore);
 
 module.exports = router;

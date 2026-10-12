@@ -7,6 +7,7 @@ const settingSchema = new mongoose.Schema({
   storeEmail: { type: String, default: '' },
   storeDescription: { type: String, default: '' },
   currency: { type: String, default: 'Rp' },
+  backupDir: { type: String, default: 'C:\\KasirKu-Backup' },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Setting', settingSchema);

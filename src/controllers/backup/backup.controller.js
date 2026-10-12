@@ -2,6 +2,7 @@ const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const archiver = require('archiver');
+const Setting = require('../../models/setting/Setting');
 
 const MONGODUMP_PATH = '"C:\\Program Files\\MongoDB\\Tools\\100\\bin\\mongodump.exe"';
 const MONGORESTORE_PATH = '"C:\\Program Files\\MongoDB\\Tools\\100\\bin\\mongorestore.exe"';
@@ -53,6 +54,85 @@ exports.backup = async (req, res, next) => {
       archive.finalize();
     });
 
+  } catch (err) { next(err); }
+};
+
+const DEFAULT_BACKUP_DIR = 'C:\\KasirKu-Backup';
+// Folder tujuan backup: dari Pengaturan, atau folder bawaan kalau belum diisi
+const getBackupDir = async () => {
+  const setting = await Setting.findOne();
+  return (setting && setting.backupDir) || DEFAULT_BACKUP_DIR;
+};
+
+// Buat dump database lalu zip langsung ke zipFile. Folder dump sementara dihapus setelahnya.
+const createBackupZip = (zipFile) => new Promise((resolve, reject) => {
+  const dbName = process.env.MONGODB_URI.split('/').pop().split('?')[0];
+  const dumpFolder = path.join(BACKUP_TEMP_DIR, `dump-${Date.now()}`);
+
+  exec(`${MONGODUMP_PATH} --db ${dbName} --out "${dumpFolder}"`, (error) => {
+    if (error) return reject(new Error('mongodump gagal: ' + error.message));
+
+    const output = fs.createWriteStream(zipFile);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    output.on('close', () => {
+      fs.rmSync(dumpFolder, { recursive: true, force: true });
+      resolve();
+    });
+    archive.on('error', (err) => {
+      fs.rmSync(dumpFolder, { recursive: true, force: true });
+      reject(err);
+    });
+
+    archive.pipe(output);
+    archive.directory(dumpFolder, false);
+    archive.finalize();
+  });
+});
+
+// Backup yang disimpan langsung ke folder pilihan pemilik (Pengaturan -> backupDir) di komputer server
+exports.save = async (req, res, next) => {
+  try {
+    const dir = await getBackupDir();
+
+    fs.mkdirSync(dir, { recursive: true });
+    fs.accessSync(dir, fs.constants.W_OK); // error kalau folder tidak bisa ditulis
+
+    // Nama file memakai waktu Asia/Jakarta supaya gampang dibaca: kasirku-backup-2026-10-09_14-30-05.zip
+    const stamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Jakarta' })
+      .replace(' ', '_').replace(/:/g, '-');
+    const fileName = `kasirku-backup-${stamp}.zip`;
+    const zipFile = path.join(dir, fileName);
+
+    await createBackupZip(zipFile);
+    const { size } = fs.statSync(zipFile);
+
+    res.json({ success: true, message: 'Backup tersimpan.', data: { folder: dir, fileName, path: zipFile, size } });
+  } catch (err) {
+    console.error('backup save error:', err);
+    res.status(500).json({ success: false, message: 'Backup gagal: ' + err.message });
+  }
+};
+
+// Daftar file backup di folder tujuan (terbaru di atas), supaya pemilik bisa melihat apa yang sudah tersimpan
+exports.list = async (req, res, next) => {
+  try {
+    const dir = await getBackupDir();
+    const exists = fs.existsSync(dir);
+
+    let files = [];
+    if (exists) {
+      files = fs.readdirSync(dir)
+        .filter(name => name.startsWith('kasirku-backup-') && name.toLowerCase().endsWith('.zip'))
+        .map(name => {
+          const stat = fs.statSync(path.join(dir, name));
+          return { fileName: name, size: stat.size, modifiedAt: stat.mtime };
+        })
+        .sort((a, b) => b.modifiedAt - a.modifiedAt)
+        .slice(0, 50);
+    }
+
+    res.json({ success: true, data: { folder: dir, exists, files } });
   } catch (err) { next(err); }
 };
 
