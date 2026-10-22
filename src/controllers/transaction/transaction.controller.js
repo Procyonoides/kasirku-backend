@@ -191,7 +191,7 @@ exports.create = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { items, customerId, paymentMethod, amountPaid, discountPercent, taxPercent, notes, pointsUsed, downPayment: downPaymentInput, downPaymentMethod: downPaymentMethodInput, keepChange } = req.body;
+    const { items, customerId, paymentMethod, amountPaid, discountPercent, surcharge, taxPercent, notes, pointsUsed, downPayment: downPaymentInput, downPaymentMethod: downPaymentMethodInput, keepChange } = req.body;
 
     let subtotal = 0;
     const transactionItems = [];
@@ -245,7 +245,8 @@ exports.create = async (req, res, next) => {
       }
     }
     const pointsDiscount = pointsToUse * 100; // 1 poin = Rp 100
-    const grandTotal = Math.max(0, afterDiscount + taxAmount - pointsDiscount);
+    const surchargeAmount = Math.max(0, Number(surcharge) || 0); // biaya tambahan / pembulatan
+    const grandTotal = Math.max(0, afterDiscount + taxAmount + surchargeAmount - pointsDiscount);
 
     const isDebt = paymentMethod === 'hutang';
     const change = isDebt ? 0 : Math.max(0, (amountPaid || 0) - grandTotal);
@@ -322,6 +323,7 @@ exports.create = async (req, res, next) => {
         discountPercent: discountPercent || 0,
         tax: taxAmount,
         taxPercent: taxPercent || 0,
+        surcharge: surchargeAmount,
         grandTotal,
         paymentMethod,
         amountPaid: amountPaid || grandTotal,

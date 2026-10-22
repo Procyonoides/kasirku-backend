@@ -276,6 +276,9 @@ exports.validateTransactionCreate = [
   body('discountPercent')
     .optional()
     .isFloat({ min: 0, max: 100 }).withMessage('Diskon harus 0-100%'),
+  body('surcharge')
+    .optional({ nullable: true })
+    .isFloat({ min: 0 }).withMessage('Biaya tambahan tidak boleh negatif'),
   body('paymentMethod')
     .notEmpty().withMessage('Metode pembayaran wajib diisi')
     .isIn(['tunai', 'transfer', 'qris', 'hutang', 'kartu_debit', 'kartu_kredit']).withMessage('Metode pembayaran tidak valid'),

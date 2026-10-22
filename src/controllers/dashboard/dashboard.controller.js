@@ -22,8 +22,11 @@ exports.getStats = async (req, res, next) => {
 
     const todayRevenue = todayTx.reduce((s, t) => s + t.grandTotal, 0);
     const monthRevenue = monthTx.reduce((s, t) => s + t.grandTotal, 0);
+    // Profit = total yang dibayar pelanggan - pajak - modal barang
+    // (sudah memperhitungkan diskon, diskon poin, dan biaya tambahan)
     const todayProfit = todayTx.reduce((s, t) => {
-      return s + t.items.reduce((ps, i) => ps + ((i.sellPrice - i.buyPrice) * i.qty), 0);
+      const cogs = t.items.reduce((c, i) => c + (i.buyPrice * i.qty), 0);
+      return s + (t.grandTotal - (t.tax || 0) - cogs);
     }, 0);
 
     res.json({
@@ -157,8 +160,9 @@ exports.getDailyRecap = async (req, res, next) => {
     
     // Summary
     const totalRevenue = transactions.reduce((s, t) => s + t.grandTotal, 0);
-    const totalProfit = transactions.reduce((s, t) => {
-      return s + t.items.reduce((ps, i) => ps + ((i.sellPrice - i.buyPrice) * i.qty), 0);
+    const totalProfit = transactions.reduce((sum, t) => {
+      const cogs = t.items.reduce((c, i) => c + (i.buyPrice * i.qty), 0);
+      return sum + (t.grandTotal - (t.tax || 0) - cogs);
     }, 0);
 
     res.json({

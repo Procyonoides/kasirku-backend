@@ -4,8 +4,24 @@ const fs = require('fs');
 const archiver = require('archiver');
 const Setting = require('../../models/setting/Setting');
 
-const MONGODUMP_PATH = '"C:\\Program Files\\MongoDB\\Tools\\100\\bin\\mongodump.exe"';
-const MONGORESTORE_PATH = '"C:\\Program Files\\MongoDB\\Tools\\100\\bin\\mongorestore.exe"';
+// Cari lokasi mongodump / mongorestore, urutannya:
+//  1) path dari file .env (MONGODUMP_PATH / MONGORESTORE_PATH)
+//  2) folder umum MongoDB di Windows (versi apa pun)
+//  3) kalau tidak ketemu, pakai nama perintah biasa (harus ada di PATH Windows)
+const findMongoTool = (exeName, envPath) => {
+  const candidates = [];
+  if (envPath) candidates.push(envPath);
+  ['C:\\Program Files\\MongoDB\\Tools', 'C:\\Program Files\\MongoDB\\Server'].forEach(root => {
+    if (!fs.existsSync(root)) return;
+    fs.readdirSync(root).sort().reverse().forEach(ver => candidates.push(path.join(root, ver, 'bin', exeName)));
+  });
+  const found = candidates.find(p => fs.existsSync(p));
+  console.log(`[backup] ${exeName}: ${found || 'tidak ditemukan di folder umum, pakai PATH'}`);
+  return found ? `"${found}"` : exeName.replace('.exe', '');
+};
+
+const MONGODUMP_PATH = findMongoTool('mongodump.exe', process.env.MONGODUMP_PATH);
+const MONGORESTORE_PATH = findMongoTool('mongorestore.exe', process.env.MONGORESTORE_PATH);
 const BACKUP_TEMP_DIR = 'C:\\kasirku-temp-backup';
 
 // Pastikan folder temp ada

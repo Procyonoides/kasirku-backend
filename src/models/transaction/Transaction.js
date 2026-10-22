@@ -23,6 +23,7 @@ const transactionSchema = new mongoose.Schema({
   discountPercent: { type: Number, default: 0 },
   tax: { type: Number, default: 0 },
   taxPercent: { type: Number, default: 0 },
+  surcharge: { type: Number, default: 0 },
   grandTotal: { type: Number, required: true },
   paymentMethod: {
     type: String,

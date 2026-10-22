@@ -22,11 +22,15 @@ exports.salesReport = async (req, res, next) => {
             in: { $add: ['$$value', '$$this.qty'] }
           }
         }},
+        // Profit = total dibayar - pajak - modal barang (sudah memperhitungkan diskon & biaya tambahan)
         profit: { $sum: {
-          $reduce: {
-            input: '$items', initialValue: 0,
-            in: { $add: ['$$value', { $multiply: [{ $subtract: ['$$this.sellPrice', '$$this.buyPrice'] }, '$$this.qty'] }] }
-          }
+          $subtract: [
+            { $subtract: ['$grandTotal', { $ifNull: ['$tax', 0] }] },
+            { $reduce: {
+              input: '$items', initialValue: 0,
+              in: { $add: ['$$value', { $multiply: ['$$this.buyPrice', '$$this.qty'] }] }
+            } }
+          ]
         }}
       }},
       { $sort: { '_id': 1 } }
